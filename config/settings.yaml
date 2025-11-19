@@ -9,8 +9,6 @@ frame_save:
 thresholds:
   bad_posture_ratio: 0.8
   window_frames: 50
-  nose_drop: 0.12
-  neck_angle: 45
 logging:
   level: "INFO"
   file: "logs/camera_ingest.log"
@@ -22,3 +20,6 @@ face_recognition:
   known_dir: "data/known"
   tolerance: 0.55
   location_model: "hog"
+posture:
+  nose_drop: 0.12
+  neck_angle: 45

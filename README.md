@@ -62,6 +62,7 @@ StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
 - 基于 MediaPipe Pose 获取关键点（nose、shoulders、hips 等）。
 - 支持检测：过度低头、脖子前伸、头部过近、身体侧倾/弓背。
 - 阈值与灵敏度通过配置文件调整。
+- `agent/posture_service.py` 使用 MediaPipe Pose 计算鼻点相较肩膀的偏移与颈部夹角，集中判断“低头”或“脖子前伸”。
 
 示例规则：
 
@@ -147,10 +148,13 @@ StudyGuardian/
    编辑 `config/settings.yaml`：
    ```yaml
    camera_url: "http://192.168.1.80:81/stream"
-   face_threshold: 0.55
+   face_recognition:
+     known_dir: "data/known"
+     tolerance: 0.55
+     location_model: "hog"
    posture:
-     angle_threshold: 45
-     nose_drop_threshold: 0.12
+     nose_drop: 0.12
+     neck_angle: 45
    alert:
      enable_sound: true
    ```

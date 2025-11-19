@@ -12,6 +12,7 @@ from loguru import logger
 
 from camera_ingest import CameraStream, FrameSaveConfig, FrameSaver
 from face_service import FaceMatch, FaceService
+from posture_service import PostureConfig, PostureService
 
 
 def load_settings(path: Path) -> Dict[str, Any]:
@@ -65,18 +66,42 @@ def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
     return service
 
 
-def make_frame_handler(face_service: FaceService) -> Callable[[cv2.Mat], bool]:
+def build_posture_service(config: Dict[str, Any]) -> PostureService:
+    posture_config = PostureConfig(
+        nose_drop=float(config.get("nose_drop", 0.12)),
+        neck_angle=float(config.get("neck_angle", 45)),
+    )
+    return PostureService(posture_config)
+
+
+def make_frame_handler(face_service: FaceService, posture_service: PostureService) -> Callable[[cv2.Mat], bool]:
     def handler(frame: "cv2.Mat") -> bool:
         matches: list[FaceMatch] = face_service.recognize(frame)
-        if not matches:
-            logger.debug("No faces detected in current frame")
-            return True
-
-        primary = matches[0]
-        if primary.identity == "unknown":
-            logger.debug("Unknown person detected (dist %.2f)", primary.distance)
+        identity = "unknown"
+        if matches:
+            primary = matches[0]
+            identity = primary.identity
+            if identity == "unknown":
+                logger.debug("Unknown person detected (dist %.2f)", primary.distance)
+            else:
+                logger.info("Recognized %s (dist %.2f)", identity, primary.distance)
         else:
-            logger.info("Recognized %s (dist %.2f)", primary.identity, primary.distance)
+            logger.debug("No faces detected in current frame")
+
+        posture = posture_service.analyze(frame)
+        if posture:
+            if posture.bad:
+                logger.warning(
+                    "Bad posture (%.3f drop / %.1f°) detected for %s: %s",
+                    posture.nose_drop,
+                    posture.neck_angle,
+                    identity,
+                    ", ".join(posture.reasons),
+                )
+            else:
+                logger.debug("Posture looks good (%.3f drop / %.1f°) for %s", posture.nose_drop, posture.neck_angle, identity)
+        else:
+            logger.debug("Posture not available for %s", identity)
 
         return True
 
@@ -94,6 +119,7 @@ def main() -> None:
     frame_saver = build_frame_saver(root, settings.get("frame_save", {}))
 
     face_service = build_face_service(root, settings.get("face_recognition", {}))
+    posture_service = build_posture_service(settings.get("posture", {}))
 
     capture_cfg = settings.get("capture", {})
     stream = CameraStream(
@@ -105,13 +131,14 @@ def main() -> None:
     )
 
     try:
-        stream.iterate(on_frame=make_frame_handler(face_service))
+        stream.iterate(on_frame=make_frame_handler(face_service, posture_service))
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns
         logger.exception("Stream ingestion failed: {}", exc)
     finally:
         stream.release()
+        posture_service.close()
 
 
 if __name__ == "__main__":
