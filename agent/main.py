@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+import os
+from urllib.parse import urlparse
 from typing import Any, Callable, Dict, Optional
 
 import cv2
@@ -96,14 +98,13 @@ def make_frame_handler(
         if matches:
             primary = matches[0]
             identity = primary.identity
+            distance = primary.distance
             if identity == "unknown":
-                logger.debug("Unknown person detected (dist %.2f)", primary.distance)
+                logger.debug("Unknown person detected (dist %.2f)", distance)
             else:
-                logger.info("Recognized %s (dist %.2f)", identity, primary.distance)
+                logger.info("Recognized %s (dist %.2f)", identity, distance)
         else:
             logger.debug("No faces detected in current frame")
-
-            distance = primary.distance
         posture = posture_service.analyze(frame)
         if posture:
             if posture.bad:
@@ -132,6 +133,27 @@ def make_frame_handler(
     return handler
 
 
+def _merge_hosts(existing: str) -> set[str]:
+    return {host.strip() for host in existing.split(",") if host.strip()}
+
+
+def ensure_no_proxy(camera_url: str | None) -> None:
+    hosts: set[str] = {"127.0.0.1", "localhost"}
+    if camera_url:
+        parsed = urlparse(camera_url)
+        if parsed.hostname:
+            hosts.add(parsed.hostname)
+
+    for key in ("no_proxy", "NO_PROXY"):
+        existing = os.environ.get(key)
+        if existing:
+            hosts.update(_merge_hosts(existing))
+
+    value = ",".join(sorted(hosts))
+    os.environ["no_proxy"] = value
+    os.environ["NO_PROXY"] = value
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     settings_path = root / "config" / "settings.yaml"
@@ -147,6 +169,7 @@ def main() -> None:
     storage = build_storage(settings.get("storage", {}))
 
     capture_cfg = settings.get("capture", {})
+    ensure_no_proxy(settings.get("camera_url"))
     stream = CameraStream(
         source=settings.get("camera_url", ""),
         target_fps=float(capture_cfg.get("target_fps", 15)),
