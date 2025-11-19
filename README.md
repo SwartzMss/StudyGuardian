@@ -55,6 +55,7 @@ StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
 - 支持注册多名家庭成员，加载 `data/known/<name>/` 的人脸库。
 - 仅当识别为孩子本人时才进入坐姿监测流程。
 - 未识别的人物统一标记为 `unknown` 并记录事件。
+- `agent/face_service.py` 利用 `face_recognition` 提取 128D 特征，按阈值（默认 0.55）判断匹配结果并提供身份 + 置信度。
 
 ### 3.2 Posture Detection｜坐姿监测
 

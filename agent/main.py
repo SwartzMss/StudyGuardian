@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import cv2
 import yaml
 from loguru import logger
 
 from camera_ingest import CameraStream, FrameSaveConfig, FrameSaver
+from face_service import FaceMatch, FaceService
 
 
 def load_settings(path: Path) -> Dict[str, Any]:
@@ -54,11 +55,32 @@ def build_frame_saver(root: Path, config: Dict[str, Any]) -> Optional[FrameSaver
     return FrameSaver(frame_config)
 
 
-def handle_frame(frame: "cv2.Mat") -> bool:
-    height, width = frame.shape[:2]
-    logger.debug("Received frame of size %dx%d", width, height)
-    # Placeholder: future modules (face, posture, alerts) will process the frame here.
-    return True
+def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
+    known_dir = Path(config.get("known_dir", "data/known"))
+    tolerance = float(config.get("tolerance", 0.55))
+    location_model = config.get("location_model", "hog")
+    service = FaceService.from_known_directory(
+        root / known_dir, tolerance=tolerance, location_model=location_model
+    )
+    return service
+
+
+def make_frame_handler(face_service: FaceService) -> Callable[[cv2.Mat], bool]:
+    def handler(frame: "cv2.Mat") -> bool:
+        matches: list[FaceMatch] = face_service.recognize(frame)
+        if not matches:
+            logger.debug("No faces detected in current frame")
+            return True
+
+        primary = matches[0]
+        if primary.identity == "unknown":
+            logger.debug("Unknown person detected (dist %.2f)", primary.distance)
+        else:
+            logger.info("Recognized %s (dist %.2f)", primary.identity, primary.distance)
+
+        return True
+
+    return handler
 
 
 def main() -> None:
@@ -71,6 +93,8 @@ def main() -> None:
 
     frame_saver = build_frame_saver(root, settings.get("frame_save", {}))
 
+    face_service = build_face_service(root, settings.get("face_recognition", {}))
+
     capture_cfg = settings.get("capture", {})
     stream = CameraStream(
         source=settings.get("camera_url", ""),
@@ -81,7 +105,7 @@ def main() -> None:
     )
 
     try:
-        stream.iterate(on_frame=handle_frame)
+        stream.iterate(on_frame=make_frame_handler(face_service))
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns
