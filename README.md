@@ -1,1 +1,168 @@
-# StudyGuardian
+# StudyGuardian — Smart Child Study Monitoring System
+
+孩子学习桌智能守护系统：依托 Raspberry Pi 5 + ESP32-CAM，实现人脸识别与坐姿监测的本地化解决方案。
+
+---
+
+## 1. Overview｜项目简介
+
+StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
+
+- **身份识别**：区分孩子、家庭成员及陌生人。
+- **实时姿态检测**：监测低头、驼背、脖子前伸、头部离桌面过近等情况。
+- **持续性判定**：滑动窗口避免误报，对持续不良坐姿发出提醒。
+- **多种提醒**：声音、屏幕提示或推送通知。
+- **事件记录**：保存关键帧、时间戳、身份信息与持续时长，便于家长复盘。
+
+> 所有视频分析均在 Raspberry Pi 5 本地完成，不上传云端，最大化保护隐私。
+
+---
+
+## 2. System Architecture｜系统架构
+
+```
+ ┌──────────────────────────────────────────┐
+ │                StudyGuardian             │
+ │      (Running on Raspberry Pi 5)         │
+ │------------------------------------------│
+ │ 1. Video Ingest (OpenCV)                 │
+ │ 2. Face Recognition (face_recognition)   │
+ │ 3. Posture Detection (MediaPipe Pose)    │
+ │ 4. Bad Posture Analyzer (Rules + Window) │
+ │ 5. Alerts (Audio / UI / Push)            │
+ │ 6. Storage (Images + SQLite/PostgreSQL)  │
+ └──────────────────────────────────────────┘
+                     ▲
+                     │ MJPEG Stream
+                     │
+         ┌────────────────────────┐
+         │       ESP32-CAM        │
+         │  Video Capture Device  │
+         └────────────────────────┘
+```
+
+| 设备           | 作用                                 |
+| -------------- | ------------------------------------ |
+| ESP32-CAM      | 采集学习桌前视频并通过 Wi-Fi 推送    |
+| Raspberry Pi 5 | 完成人脸识别、姿态识别、提醒与存储流程 |
+
+---
+
+## 3. Feature Highlights｜功能特性
+
+### 3.1 Face Recognition｜人脸识别
+
+- 支持注册多名家庭成员，加载 `data/known/<name>/` 的人脸库。
+- 仅当识别为孩子本人时才进入坐姿监测流程。
+- 未识别的人物统一标记为 `unknown` 并记录事件。
+
+### 3.2 Posture Detection｜坐姿监测
+
+- 基于 MediaPipe Pose 获取关键点（nose、shoulders、hips 等）。
+- 支持检测：过度低头、脖子前伸、头部过近、身体侧倾/弓背。
+- 阈值与灵敏度通过配置文件调整。
+
+示例规则：
+
+```python
+nose_y = landmarks["nose"].y
+shoulder_y = (landmarks["left_shoulder"].y + landmarks["right_shoulder"].y) / 2
+if nose_y - shoulder_y > 0.12:
+    bad_posture = True
+```
+
+### 3.3 Temporal Window｜持续性监测
+
+- 使用滑动窗口统计最近 `N` 帧中坏姿势比例。
+- 仅当持续超过 8–20 秒或窗口内坏姿势占比 > 80% 时触发提醒。
+
+### 3.4 Alerts｜提醒方式
+
+- 树莓派本地播放提示音（`pygame.mixer`）。
+- HDMI 屏幕弹出提醒文字。
+- 可选：MQTT、Telegram 或微信推送至家长手机。
+
+### 3.5 Logging & Storage｜事件记录
+
+- 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
+- 默认使用 SQLite，可扩展到 PostgreSQL。
+
+---
+
+## 4. Technical Roadmap｜技术路线
+
+1. **Video Ingest**：OpenCV 读取 ESP32-CAM 提供的 MJPEG 流（示例 `http://<esp32-ip>:81/stream`）。
+2. **Face Recognition**：使用 `face_recognition`（可替换成 DeepFace/InsightFace），比较实时特征与孩子图库。
+3. **Pose Estimation**：MediaPipe Pose 解析关键点，计算夹角、相对位移判断姿势。
+4. **Bad Posture Analyzer**：滑动窗口与规则结合，过滤单帧误判。
+5. **Alerts**：音频、屏幕、消息推送等多渠道提醒。
+6. **Storage**：图像与事件入库（`data/captures`、SQLite）。
+
+---
+
+## 5. Project Structure｜目录结构
+
+```
+StudyGuardian/
+  README.md
+  requirements.txt
+  src/
+    main.py
+    camera_ingest.py
+    face_service.py
+    posture_service.py
+    analyzer.py
+    alert.py
+    storage.py
+  config/
+    settings.yaml
+  data/
+    known/
+      child/
+      parent/
+    captures/
+      good_posture/
+      bad_posture/
+    db/
+      guardian.db
+```
+
+---
+
+## 6. Getting Started｜运行方式
+
+1. **Install Dependencies**
+   ```bash
+   sudo apt update
+   sudo apt install python3-opencv python3-pip
+   pip install -r requirements.txt
+   ```
+2. **Configure ESP32-CAM Stream**
+   编辑 `config/settings.yaml`：
+   ```yaml
+   camera_url: "http://192.168.1.80:81/stream"
+   face_threshold: 0.55
+   posture:
+     angle_threshold: 45
+     nose_drop_threshold: 0.12
+   alert:
+     enable_sound: true
+   ```
+3. **Run StudyGuardian**
+   ```bash
+   python3 src/main.py
+   ```
+
+---
+
+## 7. Future Work｜未来扩展
+
+- 多摄像头融合（正面 + 侧面）。
+- 脊柱侧弯监测、学习时长统计与专注度测量。
+- 自动生成学习日报或推送周报。
+- 移动端 App（Flutter / React Native）。
+- 使用轻量 ML 分类器替代规则坐姿判定。
+
+---
+
+欢迎贡献改进建议或提交 PR，让孩子拥有更健康的学习姿势守护体验。#
