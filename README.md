@@ -55,14 +55,14 @@ StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
 - 支持注册多名家庭成员，加载 `data/known/<name>/` 的人脸库。
 - 仅当识别为孩子本人时才进入坐姿监测流程。
 - 未识别的人物统一标记为 `unknown` 并记录事件。
-- `agent/face_service.py` 利用 `face_recognition` 提取 128D 特征，按阈值（默认 0.55）判断匹配结果并提供身份 + 置信度。
+- `agent/recognition/face.py` 利用 `face_recognition` 提取 128D 特征，按阈值（默认 0.55）判断匹配结果并提供身份 + 置信度。
 
 ### 3.2 Posture Detection｜坐姿监测
 
 - 基于 MediaPipe Pose 获取关键点（nose、shoulders、hips 等）。
 - 支持检测：过度低头、脖子前伸、头部过近、身体侧倾/弓背。
 - 阈值与灵敏度通过配置文件调整。
-- `agent/posture_service.py` 使用 MediaPipe Pose 计算鼻点相较肩膀的偏移与颈部夹角，集中判断“低头”或“脖子前伸”。
+- `agent/posture/analyze.py` 使用 MediaPipe Pose 计算鼻点相较肩膀的偏移与颈部夹角，集中判断“低头”或“脖子前伸”。
 
 示例规则：
 
@@ -87,7 +87,7 @@ if nose_y - shoulder_y > 0.12:
 ### 3.5 Logging & Storage｜事件记录
 
  - 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
- - `agent/storage.py` 会把每帧识别结果入表 `posture_events`，目前仅通过 PostgreSQL 存储，便于远程分析与备份。
+- `agent/storage/postgres.py` 会把每帧识别结果入表 `posture_events`，目前仅通过 PostgreSQL 存储，便于远程分析与备份。
 
 ---
 
@@ -109,13 +109,16 @@ StudyGuardian/
   README.md
   requirements.txt
   agent/
+    __init__.py
     main.py
-    camera_ingest.py
-    face_service.py
-    posture_service.py
-    analyzer.py
-    alert.py
-    storage.py
+    capture/
+      ingest.py
+    recognition/
+      face.py
+    posture/
+      analyze.py
+    storage/
+      postgres.py
   config/
     settings.yaml
   backend/
@@ -133,6 +136,8 @@ StudyGuardian/
       guardian.db
   logs/
 ```
+
+模块说明：`agent.capture` 负责 MJPEG 拉流，`agent.recognition` 管理 face_recognition，`agent.posture` 封装 MediaPipe Pose，`agent.storage` 统一 PostgreSQL 写入，`agent.main` 意在将这些功能串联为观察 agent。
 
 ---
 
@@ -163,7 +168,7 @@ StudyGuardian/
    ```
 3. **Run StudyGuardian**
    ```bash
-   python3 agent/main.py
+   python -m agent.main
    ```
 
 ### PostgreSQL Support

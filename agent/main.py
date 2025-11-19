@@ -10,10 +10,10 @@ import cv2
 import yaml
 from loguru import logger
 
-from camera_ingest import CameraStream, FrameSaveConfig, FrameSaver
-from face_service import FaceMatch, FaceService
-from posture_service import PostureConfig, PostureService
-from storage import Storage, StorageConfig
+from agent.capture import CameraStream, FrameSaveConfig, FrameSaver
+from agent.posture import PostureConfig, PostureService
+from agent.recognition import FaceMatch, FaceService
+from agent.storage import Storage, StorageConfig
 
 
 def load_settings(path: Path) -> Dict[str, Any]:
