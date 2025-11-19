@@ -160,8 +160,8 @@ StudyGuardian/
    posture:
      nose_drop: 0.12
      neck_angle: 45
-  storage:
-    postgres_dsn: ""  # 填入 PostgreSQL DSN，例如 `postgresql://guard:secret@pi5/guardian`
+storage:
+  postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # agent 默认使用本机 loopback
     table_name: "posture_events"
    alert:
      enable_sound: true
@@ -179,6 +179,16 @@ StudyGuardian/
 
 - 设置 `config/settings.yaml` 中 `storage.postgres_dsn`，示例 `postgresql://guard:secret@raspberrypi/guardian`。
 - 依赖 `psycopg2-binary`，启动时会自动创建 `posture_events` 表并持续写入事件，供远端查询或备份。
+
+#### PostgreSQL Installation Helper
+
+在 Raspberry Pi 5 这类 Debian/Ubuntu 衍生系统上可以直接运行 `scripts/setup_postgres.sh`（需要 `sudo` 权限）来安装 PostgreSQL、创建数据库与用户名，并打印出一条 DSN；脚本会自动切换到 `/tmp` 避免 `postgres` 用户因为访问不到仓库目录而打印 “could not change directory” 的警告：
+
+```bash
+sudo scripts/setup_postgres.sh
+```
+
+脚本会默认开启 `postgresql` 服务、将 `listen_addresses` 设置为 `0.0.0.0` 并允许远程 md5 连接，这让你能够在局域网中用 GUI 工具（例如 `pgAdmin` 或 `DataGrip`）连接树莓派。尽管服务监听所有网络，agent 仍然建议在 `config/settings.yaml` 把 `storage.postgres_dsn` 设置为 `postgresql://guardian:study_guardian@127.0.0.1/study_guardian`，以便通过 loopback 访问、避免额外网络开销；如果你需要从其他机器进行查询，可以在 GUI 里使用 `raspberrypi.local` 或实际 IP + 同样的用户名/密码。 如需不同的库名、用户名或密码，可在运行前通过 `PGSETUP_DB_NAME`、`PGSETUP_DB_USER`、`PGSETUP_DB_PASS` 这几个环境变量调整。运行后将输出正确的 DSN，复制到 `config/settings.yaml > storage.postgres_dsn` 即可让 agent 成功连接数据库。
 
 **PostgreSQL 表结构**
 
