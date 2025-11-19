@@ -1,4 +1,4 @@
-camera_url: "http://192.168.1.80:81/stream"
+camera_url: "http://192.168.3.4:81/stream"
 frame_save:
   root: "data/captures"
   good_dir: "good_posture"
@@ -24,5 +24,5 @@ posture:
   nose_drop: 0.12
   neck_angle: 45
 storage:
-  postgres_dsn: ""
+  postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"
   table_name: "posture_events"

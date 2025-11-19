@@ -11,6 +11,8 @@ import mediapipe as mp
 import numpy as np
 from loguru import logger
 
+from mediapipe.framework.formats import landmark_pb2
+
 
 @dataclass
 class PostureConfig:
@@ -68,17 +70,17 @@ class PostureService:
         return PostureAssessment(bad=bad, nose_drop=nose_drop, neck_angle=neck_angle, reasons=reasons)
 
     @staticmethod
-    def _average_point(points: Sequence[mp.framework.formats.landmark_pb2.NormalizedLandmark]) -> mp.framework.formats.landmark_pb2.NormalizedLandmark:
+    def _average_point(points: Sequence[landmark_pb2.NormalizedLandmark]) -> landmark_pb2.NormalizedLandmark:
         x = sum(point.x for point in points) / len(points)
         y = sum(point.y for point in points) / len(points)
         z = sum(point.z for point in points) / len(points)
-        return mp.framework.formats.landmark_pb2.NormalizedLandmark(x=x, y=y, z=z)
+        return landmark_pb2.NormalizedLandmark(x=x, y=y, z=z)
 
     @staticmethod
     def _angle_between(
-        a: mp.framework.formats.landmark_pb2.NormalizedLandmark,
-        b: mp.framework.formats.landmark_pb2.NormalizedLandmark,
-        c: mp.framework.formats.landmark_pb2.NormalizedLandmark,
+        a: landmark_pb2.NormalizedLandmark,
+        b: landmark_pb2.NormalizedLandmark,
+        c: landmark_pb2.NormalizedLandmark,
     ) -> float:
         ba = np.array([a.x - b.x, a.y - b.y])
         bc = np.array([c.x - b.x, c.y - b.y])
