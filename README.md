@@ -116,6 +116,10 @@ StudyGuardian/
     storage.py
   config/
     settings.yaml
+  backend/
+    README.md
+  frontend/
+    README.md
   data/
     known/
       child/
@@ -125,6 +129,7 @@ StudyGuardian/
       bad_posture/
     db/
       guardian.db
+  logs/
 ```
 
 ---
