@@ -1,0 +1,20 @@
+camera_url: "http://192.168.1.80:81/stream"
+frame_save:
+  root: "data/captures"
+  good_dir: "good_posture"
+  bad_dir: "bad_posture"
+  enable: false
+  interval_seconds: 30
+  default_category: "raw"
+thresholds:
+  bad_posture_ratio: 0.8
+  window_frames: 50
+  nose_drop: 0.12
+  neck_angle: 45
+logging:
+  level: "INFO"
+  file: "logs/camera_ingest.log"
+capture:
+  target_fps: 15
+  reconnect_delay: 5
+  max_retries: 5
