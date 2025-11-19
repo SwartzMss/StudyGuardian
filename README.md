@@ -171,6 +171,10 @@ StudyGuardian/
    python -m agent.main
    ```
 
+### Convenient Start Script
+
+执行 `scripts/start_agent.sh` 会创建 `.venv` 虚拟环境、升级 `pip`、安装 `requirements.txt`，然后启动 `agent.main`。如需指定 Python 可先设置 `PYTHON_BIN` 环境变量（例如 `PYTHON_BIN=python3.11 scripts/start_agent.sh`）。脚本默认读取 `config/settings.yaml` 中的 `storage.postgres_dsn`，请先设定好 PostgreSQL 访问串。
+
 ### PostgreSQL Support
 
 - 设置 `config/settings.yaml` 中 `storage.postgres_dsn`，示例 `postgresql://guard:secret@raspberrypi/guardian`。
