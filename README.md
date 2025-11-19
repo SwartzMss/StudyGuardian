@@ -176,6 +176,20 @@ StudyGuardian/
 - 设置 `config/settings.yaml` 中 `storage.postgres_dsn`，示例 `postgresql://guard:secret@raspberrypi/guardian`。
 - 依赖 `psycopg2-binary`，启动时会自动创建 `posture_events` 表并持续写入事件，供远端查询或备份。
 
+**PostgreSQL 表结构**
+
+| 字段           | 类型                                                                 | 说明                            |
+| -------------- | -------------------------------------------------------------------- | ------------------------------- |
+| `id`           | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                     |
+| `identity`     | `TEXT NOT NULL`                                                       | 当前识别身份（child/unknown）     |
+| `is_bad`       | `BOOLEAN NOT NULL`                                                    | 是否判定为不良坐姿               |
+| `nose_drop`    | `DOUBLE PRECISION`                                                    | 鼻尖相对双肩垂直偏移量           |
+| `neck_angle`   | `DOUBLE PRECISION`                                                    | 颈部与躯干的夹角                 |
+| `reasons`      | `TEXT`                                                                | 命中规则／原因文本               |
+| `face_distance`| `DOUBLE PRECISION`                                                    | 人脸比对距离                     |
+| `frame_path`   | `TEXT`                                                                | 抓拍图像路径（启用 `frame_save`） |
+| `timestamp`    | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                     |
+
 ---
 
 ## 7. Future Work｜未来扩展
