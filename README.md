@@ -88,6 +88,7 @@ if nose_y - shoulder_y > 0.12:
 
 - 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
 - 默认使用 SQLite，可扩展到 PostgreSQL。
+- `agent/storage.py` 会把每帧识别结果入表 `posture_events`，支持 `sqlite` 与 `postgres` 两种 backend。
 
 ---
 
@@ -155,6 +156,11 @@ StudyGuardian/
    posture:
      nose_drop: 0.12
      neck_angle: 45
+   storage:
+     backend: "sqlite" # 可选 postgres
+     sqlite_path: "data/db/guardian.db"
+     postgres_dsn: ""  # 填入 DSN 后可切换后端
+     table_name: "posture_events"
    alert:
      enable_sound: true
    ```
@@ -162,6 +168,11 @@ StudyGuardian/
    ```bash
    python3 agent/main.py
    ```
+
+### PostgreSQL Support
+
+- 若要改用 PostgreSQL，在 `config/settings.yaml` 中将 `storage.backend` 设为 `postgres`，并填写 `postgres_dsn`（例如 `postgresql://guard:secret@raspberrypi/guardian`）。  
+- 依赖 `psycopg2-binary`，启动时会自动创建 `posture_events` 表，方便远程分析或备份。
 
 ---
 

@@ -13,6 +13,7 @@ from loguru import logger
 from camera_ingest import CameraStream, FrameSaveConfig, FrameSaver
 from face_service import FaceMatch, FaceService
 from posture_service import PostureConfig, PostureService
+from storage import Storage, StorageConfig
 
 
 def load_settings(path: Path) -> Dict[str, Any]:
@@ -74,10 +75,28 @@ def build_posture_service(config: Dict[str, Any]) -> PostureService:
     return PostureService(posture_config)
 
 
-def make_frame_handler(face_service: FaceService, posture_service: PostureService) -> Callable[[cv2.Mat], bool]:
+def build_storage(root: Path, config: Dict[str, Any]) -> Storage:
+    backend = config.get("backend", "sqlite")
+    sqlite_path = Path(config.get("sqlite_path", "data/db/guardian.db"))
+    if not sqlite_path.is_absolute():
+        sqlite_path = root / sqlite_path
+    postgres_dsn = config.get("postgres_dsn")
+    storage_config = StorageConfig(
+        backend=backend,
+        sqlite_path=sqlite_path,
+        postgres_dsn=postgres_dsn,
+        table_name=config.get("table_name", "posture_events"),
+    )
+    return Storage(storage_config)
+
+
+def make_frame_handler(
+    face_service: FaceService, posture_service: PostureService, storage: Storage
+) -> Callable[[cv2.Mat], bool]:
     def handler(frame: "cv2.Mat") -> bool:
         matches: list[FaceMatch] = face_service.recognize(frame)
         identity = "unknown"
+        distance: Optional[float] = None
         if matches:
             primary = matches[0]
             identity = primary.identity
@@ -88,6 +107,7 @@ def make_frame_handler(face_service: FaceService, posture_service: PostureServic
         else:
             logger.debug("No faces detected in current frame")
 
+            distance = primary.distance
         posture = posture_service.analyze(frame)
         if posture:
             if posture.bad:
@@ -100,6 +120,14 @@ def make_frame_handler(face_service: FaceService, posture_service: PostureServic
                 )
             else:
                 logger.debug("Posture looks good (%.3f drop / %.1f°) for %s", posture.nose_drop, posture.neck_angle, identity)
+            storage.log_posture(
+                identity=identity,
+                is_bad=posture.bad,
+                nose_drop=posture.nose_drop,
+                neck_angle=posture.neck_angle,
+                reasons=posture.reasons,
+                face_distance=distance,
+            )
         else:
             logger.debug("Posture not available for %s", identity)
 
@@ -120,6 +148,7 @@ def main() -> None:
 
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(settings.get("posture", {}))
+    storage = build_storage(root, settings.get("storage", {}))
 
     capture_cfg = settings.get("capture", {})
     stream = CameraStream(
@@ -131,13 +160,14 @@ def main() -> None:
     )
 
     try:
-        stream.iterate(on_frame=make_frame_handler(face_service, posture_service))
+        stream.iterate(on_frame=make_frame_handler(face_service, posture_service, storage))
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns
         logger.exception("Stream ingestion failed: {}", exc)
     finally:
         stream.release()
+        storage.close()
         posture_service.close()
 
 
