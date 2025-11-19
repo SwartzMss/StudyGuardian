@@ -106,7 +106,7 @@ if nose_y - shoulder_y > 0.12:
 StudyGuardian/
   README.md
   requirements.txt
-  src/
+  agent/
     main.py
     camera_ingest.py
     face_service.py
@@ -155,7 +155,7 @@ StudyGuardian/
    ```
 3. **Run StudyGuardian**
    ```bash
-   python3 src/main.py
+   python3 agent/main.py
    ```
 
 ---
