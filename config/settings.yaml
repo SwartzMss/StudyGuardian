@@ -18,3 +18,7 @@ capture:
   target_fps: 15
   reconnect_delay: 5
   max_retries: 5
+face_recognition:
+  known_dir: "data/known"
+  tolerance: 0.55
+  location_model: "hog"
