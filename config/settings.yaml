@@ -24,7 +24,5 @@ posture:
   nose_drop: 0.12
   neck_angle: 45
 storage:
-  backend: "sqlite"
-  sqlite_path: "data/db/guardian.db"
   postgres_dsn: ""
   table_name: "posture_events"

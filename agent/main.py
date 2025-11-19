@@ -75,15 +75,11 @@ def build_posture_service(config: Dict[str, Any]) -> PostureService:
     return PostureService(posture_config)
 
 
-def build_storage(root: Path, config: Dict[str, Any]) -> Storage:
-    backend = config.get("backend", "sqlite")
-    sqlite_path = Path(config.get("sqlite_path", "data/db/guardian.db"))
-    if not sqlite_path.is_absolute():
-        sqlite_path = root / sqlite_path
+def build_storage(config: Dict[str, Any]) -> Storage:
     postgres_dsn = config.get("postgres_dsn")
+    if not postgres_dsn:
+        raise ValueError("PostgreSQL DSN must be provided under storage.postgres_dsn")
     storage_config = StorageConfig(
-        backend=backend,
-        sqlite_path=sqlite_path,
         postgres_dsn=postgres_dsn,
         table_name=config.get("table_name", "posture_events"),
     )
@@ -148,7 +144,7 @@ def main() -> None:
 
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(settings.get("posture", {}))
-    storage = build_storage(root, settings.get("storage", {}))
+    storage = build_storage(settings.get("storage", {}))
 
     capture_cfg = settings.get("capture", {})
     stream = CameraStream(
