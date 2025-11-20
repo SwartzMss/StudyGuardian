@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import Iterator, List, Sequence, Tuple
 
 import cv2
 import face_recognition
@@ -22,6 +23,36 @@ class FaceMatch:
 
 def _hash_path(path: Path) -> str:
     return hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:8]
+
+
+def _iter_identity_dirs(base_dir: Path) -> Iterator[Tuple[str, Path]]:
+    try:
+        children = sorted(base_dir.iterdir(), key=lambda item: item.name)
+    except PermissionError:
+        logger.warning("Cannot access %s, skipping", base_dir)
+        return
+
+    def _walk(current: Path) -> Iterator[Tuple[str, Path]]:
+        if not current.is_dir():
+            return
+        try:
+            entries = sorted(current.iterdir(), key=lambda item: item.name)
+        except PermissionError:
+            logger.warning("Cannot access %s, skipping", current)
+            return
+
+        files = [entry for entry in entries if entry.is_file()]
+        if files:
+            identity = current.relative_to(base_dir).as_posix()
+            yield identity, current
+
+        for entry in entries:
+            if entry.is_dir():
+                yield from _walk(entry)
+
+    for child in children:
+        if child.is_dir():
+            yield from _walk(child)
 
 
 class FaceService:
@@ -50,11 +81,9 @@ class FaceService:
 
         encodings: List[np.ndarray] = []
         labels: List[str] = []
+        per_identity_counts: dict[str, int] = defaultdict(int)
 
-        for person_dir in sorted(base_dir.iterdir()):
-            if not person_dir.is_dir():
-                continue
-            identity = person_dir.name
+        for identity, person_dir in _iter_identity_dirs(base_dir):
             for image_path in sorted(person_dir.glob("*")):
                 if not image_path.is_file():
                     continue
@@ -65,12 +94,16 @@ class FaceService:
                     continue
                 encodings.append(faces[0])
                 labels.append(identity)
+                per_identity_counts[identity] += 1
                 logger.debug(
                     "Loaded %s (%s) with hash %s", identity, image_path.name, _hash_path(image_path)
                 )
 
         if not encodings:
             logger.warning("No known faces loaded from %s", base_dir)
+        else:
+            for identity, count in per_identity_counts.items():
+                logger.info("Loaded %d reference image(s) for identity %s", count, identity)
 
         return cls(encodings, labels, tolerance, location_model)
 

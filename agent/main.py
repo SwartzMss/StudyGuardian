@@ -6,13 +6,19 @@ import sys
 from pathlib import Path
 import os
 from urllib.parse import urlparse
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 import cv2
 import yaml
 from loguru import logger
 
-from agent.capture import CameraStream, FrameSaveConfig, FrameSaver
+from agent.capture import (
+    CameraStream,
+    FrameSaveConfig,
+    FrameSaver,
+    IdentityCapture,
+    IdentityCaptureConfig,
+)
 from agent.posture import PostureConfig, PostureService
 from agent.recognition import FaceMatch, FaceService
 from agent.storage import Storage, StorageConfig
@@ -59,6 +65,29 @@ def build_frame_saver(root: Path, config: Dict[str, Any]) -> Optional[FrameSaver
     return FrameSaver(frame_config)
 
 
+def build_identity_capture(root: Path, config: Dict[str, Any]) -> Optional[IdentityCapture]:
+    enabled = bool(config.get("enable", False))
+    if not enabled:
+        return None
+
+    save_root = config.get("root", "data/unknown")
+    date_format = config.get("date_folder_format", "%m%d")
+    time_format = config.get("time_format", "%H%M%S")
+    extension = config.get("extension", ".jpg")
+    capture_config = IdentityCaptureConfig(
+        root=root / save_root,
+        enabled=True,
+        date_folder_format=date_format,
+        time_format=time_format,
+        extension=extension,
+    )
+    groups = _ensure_string_set(config.get("groups"))
+    identities = _ensure_string_set(config.get("identities"))
+    if not groups and not identities:
+        identities = {"unknown"}
+    return IdentityCapture(capture_config, groups=groups, identities=identities)
+
+
 def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
     known_dir = Path(config.get("known_dir", "data/known"))
     tolerance = float(config.get("tolerance", 0.55))
@@ -88,14 +117,50 @@ def build_storage(config: Dict[str, Any]) -> Storage:
     return Storage(storage_config)
 
 
+def _ensure_string_set(values: Any) -> Optional[Set[str]]:
+    if values is None:
+        return None
+    if isinstance(values, str):
+        values = [values]
+    parsed = {str(value).strip() for value in values or [] if str(value).strip()}
+    return parsed or None
+
+
+def _merge_sets(primary: Optional[Set[str]], secondary: Optional[Set[str]]) -> Optional[Set[str]]:
+    if not secondary:
+        return primary
+    if not primary:
+        return set(secondary)
+    return set(primary).union(secondary)
+
+
+def _parse_monitoring_filters(settings: Dict[str, Any]) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+    monitored_identities = _ensure_string_set(settings.get("monitored_identities"))
+    monitored_groups = _ensure_string_set(settings.get("monitored_groups"))
+    monitoring_block = settings.get("monitoring") or {}
+    monitored_identities = _merge_sets(
+        monitored_identities, _ensure_string_set(monitoring_block.get("identities"))
+    )
+    monitored_groups = _merge_sets(
+        monitored_groups, _ensure_string_set(monitoring_block.get("groups"))
+    )
+    return monitored_identities, monitored_groups
+
+
 def make_frame_handler(
-    face_service: FaceService, posture_service: PostureService, storage: Storage
+    face_service: FaceService,
+    posture_service: PostureService,
+    storage: Storage,
+    monitored_identities: Optional[Set[str]] = None,
+    monitored_groups: Optional[Set[str]] = None,
+    identity_capture: Optional[IdentityCapture] = None,
 ) -> Callable[[cv2.Mat], bool]:
     def handler(frame: "cv2.Mat") -> bool:
         matches: list[FaceMatch] = face_service.recognize(frame)
+        had_faces = bool(matches)
         identity = "unknown"
         distance: Optional[float] = None
-        if matches:
+        if had_faces:
             primary = matches[0]
             identity = primary.identity
             distance = primary.distance
@@ -105,6 +170,26 @@ def make_frame_handler(
                 logger.info("Recognized %s (dist %.2f)", identity, distance)
         else:
             logger.debug("No faces detected in current frame")
+
+        if had_faces and identity_capture is not None:
+            identity_capture.save(identity, frame)
+
+        if not had_faces:
+            logger.debug("Skipping posture analysis; no faces detected")
+            return True
+
+        should_analyze = True
+        if monitored_identities or monitored_groups:
+            identity_match = monitored_identities is not None and identity in monitored_identities
+            group_match = False
+            if monitored_groups and identity not in ("", "unknown"):
+                identity_group = identity.split("/", 1)[0]
+                group_match = identity_group in monitored_groups
+            should_analyze = identity_match or group_match
+        if not should_analyze:
+            logger.debug("Skipping posture analysis for %s; identity not in monitored list", identity)
+            return True
+
         posture = posture_service.analyze(frame)
         if posture:
             if posture.bad:
@@ -167,6 +252,8 @@ def main() -> None:
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(settings.get("posture", {}))
     storage = build_storage(settings.get("storage", {}))
+    monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
+    unknown_capture = build_identity_capture(root, settings.get("unknown_capture", {}))
 
     capture_cfg = settings.get("capture", {})
     ensure_no_proxy(settings.get("camera_url"))
@@ -179,7 +266,16 @@ def main() -> None:
     )
 
     try:
-        stream.iterate(on_frame=make_frame_handler(face_service, posture_service, storage))
+        stream.iterate(
+            on_frame=make_frame_handler(
+                face_service,
+                posture_service,
+                storage,
+                monitored_identities=monitored_identities,
+                monitored_groups=monitored_groups,
+                identity_capture=unknown_capture,
+            )
+        )
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns

@@ -1,28 +1,31 @@
-camera_url: "http://192.168.3.4:81/stream"
+camera_url: "http://192.168.3.4:81/stream"  # ESP32-CAM MJPEG 流地址
 frame_save:
-  root: "data/captures"
-  good_dir: "good_posture"
-  bad_dir: "bad_posture"
-  enable: false
-  interval_seconds: 30
-  default_category: "raw"
-thresholds:
-  bad_posture_ratio: 0.8
-  window_frames: 50
+  root: "data/captures"  # 定期保存原始帧的根目录（默认直接保存在此目录）
+  enable: false  # 是否启用定时帧保存
+  interval_seconds: 30  # 保存间隔秒数
 logging:
-  level: "INFO"
-  file: "logs/camera_ingest.log"
+  level: "INFO"  # 日志等级
+  file: "logs/camera_ingest.log"  # 日志文件路径
 capture:
-  target_fps: 15
-  reconnect_delay: 5
-  max_retries: 5
+  target_fps: 15  # 处理节奏（限制读取频率，非摄像头真实帧率）
+  reconnect_delay: 5  # 断线重连时延秒
+  max_retries: 5  # 最大重连次数
 face_recognition:
-  known_dir: "data/known"
-  tolerance: 0.55
-  location_model: "hog"
+  known_dir: "data/known"  # 人脸图库根目录
+  tolerance: 0.55  # 人脸匹配阈值
+  location_model: "hog"  # face_recognition 定位模型
+monitored_groups:
+  - "child"  # 允许进入坐姿检测的顶层分组
+unknown_capture:
+  enable: true  # 是否启用陌生人抓拍
+  root: "data/unknown"  # 抓拍输出根目录
+  date_folder_format: "%m%d"  # 日期文件夹格式（例如 1120）
+  time_format: "%H%M%S"  # 文件名中的时间格式（例如 213435）
+  identities:
+    - "unknown"  # 抓拍的身份（可替换或增加 parent/child/...）
 posture:
-  nose_drop: 0.12
-  neck_angle: 45
+  nose_drop: 0.12  # 鼻尖相对肩膀的下垂阈值
+  neck_angle: 45  # 颈部夹角阈值
 storage:
-  postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"
-  table_name: "posture_events"
+  postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # PostgreSQL 连接串
+  table_name: "posture_events"  # 事件表名
