@@ -53,9 +53,23 @@ StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
 ### 3.1 Face Recognition｜人脸识别
 
 - 支持注册多名家庭成员，加载 `data/known/<name>/` 的人脸库。
-- 仅当识别为孩子本人时才进入坐姿监测流程。
+- `data/known/child/<name>/` 结构允许把多个孩子的照片按名字放在 `child` 分组下，identity 会记录为 `child/<name>` 便于区分。
+- 仅当识别为孩子本人时才进入坐姿监测流程，可通过 `monitored_groups` 或 `monitored_identities` 控制允许的目录。
 - 未识别的人物统一标记为 `unknown` 并记录事件。
+- 陌生人（`unknown`）会自动按日期（`月日`）分目录保存在 `data/unknown/<MMDD>/<identity>_<HHMMSS>.jpg`，便于事后确认是谁靠近了学习桌，相关格式可在 `unknown_capture` 配置。
 - `agent/recognition/face.py` 利用 `face_recognition` 提取 128D 特征，按阈值（默认 0.55）判断匹配结果并提供身份 + 置信度。
+- `config/settings.yaml` 中的 `monitored_groups`（按顶级目录，如 `child`）或 `monitored_identities`（按完整路径，如 `child/alice`）控制哪些身份需要进入坐姿检测，默认仅监测 `child`，其余身份直接跳过以节省算力。
+
+示例目录：
+
+```
+data/known/
+  child/
+    alice/
+    bob/
+  parent/
+    mom/
+```
 
 ### 3.2 Posture Detection｜坐姿监测
 
@@ -73,18 +87,13 @@ if nose_y - shoulder_y > 0.12:
     bad_posture = True
 ```
 
-### 3.3 Temporal Window｜持续性监测
-
-- 使用滑动窗口统计最近 `N` 帧中坏姿势比例。
-- 仅当持续超过 8–20 秒或窗口内坏姿势占比 > 80% 时触发提醒。
-
-### 3.4 Alerts｜提醒方式
+### 3.3 Alerts｜提醒方式
 
 - 树莓派本地播放提示音（`pygame.mixer`）。
 - HDMI 屏幕弹出提醒文字。
 - 可选：MQTT、Telegram 或微信推送至家长手机。
 
-### 3.5 Logging & Storage｜事件记录
+### 3.4 Logging & Storage｜事件记录
 
  - 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
 - `agent/storage/postgres.py` 会把每帧识别结果入表 `posture_events`，目前仅通过 PostgreSQL 存储，便于远程分析与备份。
@@ -130,8 +139,6 @@ StudyGuardian/
       child/
       parent/
     captures/
-      good_posture/
-      bad_posture/
   logs/
 ```
 
@@ -151,19 +158,35 @@ StudyGuardian/
    编辑 `config/settings.yaml`：
    ```yaml
    camera_url: "http://192.168.1.80:81/stream"
+   frame_save:
+     root: "data/captures"
+     enable: false
+     interval_seconds: 30
    face_recognition:
      known_dir: "data/known"
      tolerance: 0.55
      location_model: "hog"
+   monitored_groups:
+     - "child"
+   unknown_capture:
+     enable: true
+     root: "data/unknown"
+     date_folder_format: "%m%d"
+     time_format: "%H%M%S"
+     identities:
+       - "unknown"
    posture:
      nose_drop: 0.12
      neck_angle: 45
-storage:
-  postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # agent 默认使用本机 loopback
-    table_name: "posture_events"
+   storage:
+     postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # agent 默认使用本机 loopback
+     table_name: "posture_events"
    alert:
      enable_sound: true
    ```
+   `frame_save` 会按照 `interval_seconds` 的频率把当前帧直接写入 `root`（默认 `data/captures/`）目录，如果需要分类可以在调用 `FrameSaver.save(frame, category="xxx")` 时自行指定。
+   `capture.target_fps` 只是限制 agent 消费视频流的速率（避免 CPU 过载），不会改变摄像头真实输出的帧率；ESP32-CAM 的分辨率/FPS 仍需在设备端设置。
+   `unknown_capture` 会把特定身份（默认 `unknown`）的抓拍按 `date_folder_format` 指定的“月日”目录保存，并在文件名里附上身份与 `time_format`（默认时分秒）方便回溯；可以通过 `identities` 或 `groups` 精确控制需要抓拍的人群，比如同时采集 `parent` 分组的访客照片。
 3. **Run StudyGuardian**
    ```bash
    python -m agent.main

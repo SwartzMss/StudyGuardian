@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, Set
 
 import cv2
 from loguru import logger
@@ -17,11 +17,12 @@ class FrameSaveConfig:
     root: Path
     enabled: bool = False
     interval_seconds: float = 30.0
-    default_category: str = "raw"
+    default_category: Optional[str] = None
 
     def __post_init__(self) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / self.default_category).mkdir(parents=True, exist_ok=True)
+        if self.default_category:
+            (self.root / self.default_category).mkdir(parents=True, exist_ok=True)
 
 
 class FrameSaver:
@@ -40,7 +41,10 @@ class FrameSaver:
             return None
 
         category = category or self._config.default_category
-        target_dir = self._config.root / category
+        if category:
+            target_dir = self._config.root / category
+        else:
+            target_dir = self._config.root
         target_dir.mkdir(parents=True, exist_ok=True)
         filename = datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".jpg"
         path = target_dir / filename
@@ -51,6 +55,70 @@ class FrameSaver:
 
         logger.warning("Unable to save frame to {}", path)
         return None
+
+
+@dataclass
+class IdentityCaptureConfig:
+    root: Path
+    enabled: bool = False
+    date_folder_format: str = "%m%d"
+    time_format: str = "%H%M%S"
+    extension: str = ".jpg"
+
+    def __post_init__(self) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        if not self.extension.startswith("."):
+            self.extension = f".{self.extension}"
+
+
+class IdentityCapture:
+    """Save snapshots for specific identities or groups into date-based folders."""
+
+    def __init__(
+        self,
+        config: IdentityCaptureConfig,
+        groups: Optional[Set[str]] = None,
+        identities: Optional[Set[str]] = None,
+    ) -> None:
+        self._config = config
+        self._groups = groups
+        self._identities = identities
+
+    def save(self, identity: str, frame: "cv2.Mat") -> Optional[Path]:
+        if not self._config.enabled or frame is None:
+            return None
+        if not self._should_capture(identity):
+            return None
+
+        now = datetime.now()
+        date_dir = now.strftime(self._config.date_folder_format)
+        time_part = now.strftime(self._config.time_format)
+        safe_identity = (identity or "unknown").replace("/", "_")
+        target_dir = self._config.root / date_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{safe_identity}_{time_part}{self._config.extension}"
+        path = target_dir / filename
+        if cv2.imwrite(str(path), frame):
+            logger.info("Saved snapshot for {} to {}", safe_identity, path)
+            return path
+
+        logger.warning("Unable to save snapshot for {} at {}", safe_identity, path)
+        return None
+
+    def _should_capture(self, identity: str) -> bool:
+        if not self._groups and not self._identities:
+            return True
+
+        identity = identity or "unknown"
+        if self._identities and identity in self._identities:
+            return True
+
+        if self._groups:
+            group = identity.split("/", 1)[0]
+            if group in self._groups:
+                return True
+
+        return False
 
 
 class CameraStream:
