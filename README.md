@@ -132,8 +132,6 @@ StudyGuardian/
     captures/
       good_posture/
       bad_posture/
-    db/
-      guardian.db
   logs/
 ```
 
