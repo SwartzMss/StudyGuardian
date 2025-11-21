@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from urllib.parse import urlparse
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 import cv2
@@ -115,7 +116,9 @@ def build_storage(config: Dict[str, Any]) -> Storage:
         raise ValueError("PostgreSQL DSN must be provided under storage.postgres_dsn")
     storage_config = StorageConfig(
         postgres_dsn=postgres_dsn,
-        table_name=config.get("table_name", "posture_events"),
+        posture_table=config.get("table_name", "posture_events"),
+        face_table=config.get("face_table_name", "face_captures"),
+        reset_on_start=bool(config.get("reset_on_start", False)),
     )
     return Storage(storage_config)
 
@@ -163,7 +166,24 @@ def make_frame_handler(
         had_faces = bool(matches)
         identity = "unknown"
         distance: Optional[float] = None
+        capture_records: dict[str, Tuple[int | None, Optional[str]]] = {}
         if had_faces:
+            for match in matches:
+                identity_key = match.identity or "unknown"
+                group = identity_key.split("/", 1)[0] if "/" in identity_key else identity_key or "unknown"
+                snapshot_path: Optional[str] = None
+                if identity_capture is not None:
+                    saved = identity_capture.save(identity_key, frame)
+                    if saved:
+                        snapshot_path = str(saved)
+                face_capture_id = storage.log_face_capture(
+                    identity=identity_key,
+                    group_tag=group or "unknown",
+                    face_distance=match.distance,
+                    frame_path=snapshot_path,
+                )
+                capture_records[identity_key] = (face_capture_id, snapshot_path)
+
             primary = matches[0]
             identity = primary.identity
             distance = primary.distance
@@ -173,9 +193,6 @@ def make_frame_handler(
                 logger.info("Recognized {} (dist {:.2f})", identity, distance)
         else:
             logger.debug("No faces detected in current frame")
-
-        if had_faces and identity_capture is not None:
-            identity_capture.save(identity, frame)
 
         if not had_faces:
             logger.debug("Skipping posture analysis; no faces detected")
@@ -210,6 +227,11 @@ def make_frame_handler(
                     posture.neck_angle,
                     identity,
                 )
+            face_capture_id: Optional[int] = None
+            capture_path: Optional[str] = None
+            record = capture_records.get(identity)
+            if record:
+                face_capture_id, capture_path = record
             storage.log_posture(
                 identity=identity,
                 is_bad=posture.bad,
@@ -217,6 +239,8 @@ def make_frame_handler(
                 neck_angle=posture.neck_angle,
                 reasons=posture.reasons,
                 face_distance=distance,
+                frame_path=capture_path,
+                face_capture_id=face_capture_id,
             )
         else:
             logger.info("Posture not available for {}", identity)
@@ -261,7 +285,10 @@ def main() -> None:
     posture_service = build_posture_service(settings.get("posture", {}))
     storage = build_storage(settings.get("storage", {}))
     monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
-    unknown_capture = build_identity_capture(root, settings.get("unknown_capture", {}))
+    face_capture_cfg = settings.get("face_capture")
+    if face_capture_cfg is None:
+        face_capture_cfg = settings.get("unknown_capture", {})
+    identity_capture = build_identity_capture(root, face_capture_cfg)
 
     capture_cfg = settings.get("capture", {})
     ensure_no_proxy(settings.get("camera_url"))
@@ -281,7 +308,7 @@ def main() -> None:
                 storage,
                 monitored_identities=monitored_identities,
                 monitored_groups=monitored_groups,
-                identity_capture=unknown_capture,
+                identity_capture=identity_capture,
             )
         )
     except KeyboardInterrupt:

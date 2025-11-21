@@ -87,15 +87,19 @@ class IdentityCapture:
     def save(self, identity: str, frame: "cv2.Mat") -> Optional[Path]:
         if not self._config.enabled or frame is None:
             return None
+        identity = identity or "unknown"
         if not self._should_capture(identity):
             return None
 
         now = datetime.now()
         date_dir = now.strftime(self._config.date_folder_format)
         time_part = now.strftime(self._config.time_format)
-        safe_identity = (identity or "unknown").replace("/", "_")
-        target_dir = self._config.root / date_dir
+        identity_parts = [part.strip() for part in identity.split("/") if part.strip()]
+        if not identity_parts:
+            identity_parts = ["unknown"]
+        target_dir = self._config.root.joinpath(*identity_parts, date_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
+        safe_identity = "_".join(identity_parts)
         filename = f"{safe_identity}_{time_part}{self._config.extension}"
         path = target_dir / filename
         if cv2.imwrite(str(path), frame):

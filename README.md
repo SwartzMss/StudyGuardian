@@ -162,31 +162,33 @@ StudyGuardian/
      root: "data/captures"
      enable: false
      interval_seconds: 30
+   face_capture:
+     enable: true
+     root: "data/captures"
+     date_folder_format: "%Y%m%d"
+     time_format: "%H%M%S"
+     groups: []
    face_recognition:
      known_dir: "data/known"
      tolerance: 0.55
      location_model: "hog"
    monitored_groups:
      - "child"
-   unknown_capture:
-     enable: true
-     root: "data/unknown"
-     date_folder_format: "%m%d"
-     time_format: "%H%M%S"
-     identities:
-       - "unknown"
    posture:
      nose_drop: 0.12
      neck_angle: 45
    storage:
      postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # agent 默认使用本机 loopback
      table_name: "posture_events"
+     face_table_name: "face_captures"
+     reset_on_start: false
    alert:
      enable_sound: true
    ```
    `frame_save` 会按照 `interval_seconds` 的频率把当前帧直接写入 `root`（默认 `data/captures/`）目录，如果需要分类可以在调用 `FrameSaver.save(frame, category="xxx")` 时自行指定。
    `capture.target_fps` 只是限制 agent 消费视频流的速率（避免 CPU 过载），不会改变摄像头真实输出的帧率；ESP32-CAM 的分辨率/FPS 仍需在设备端设置。
-   `unknown_capture` 会把特定身份（默认 `unknown`）的抓拍按 `date_folder_format` 指定的“月日”目录保存，并在文件名里附上身份与 `time_format`（默认时分秒）方便回溯；可以通过 `identities` 或 `groups` 精确控制需要抓拍的人群，比如同时采集 `parent` 分组的访客照片。
+   `face_capture` 会在识别到任意身份（包含 `unknown`）时保存整帧到 `data/captures/<identity>/<日期>/` 路径，并把记录写入数据库，便于事后追踪谁出现在镜头前。
+   `storage.reset_on_start` 设为 `true` 时，每次启动都会删除并重建两张事件表（`face_captures`、`posture_events`），慎用（仅适合测试环境）。
 3. **Run StudyGuardian**
    ```bash
    python -m agent.main
@@ -213,17 +215,32 @@ sudo scripts/setup_postgres.sh
 
 **PostgreSQL 表结构**
 
-| 字段           | 类型                                                                 | 说明                            |
-| -------------- | -------------------------------------------------------------------- | ------------------------------- |
-| `id`           | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                     |
-| `identity`     | `TEXT NOT NULL`                                                       | 当前识别身份（child/unknown）     |
-| `is_bad`       | `BOOLEAN NOT NULL`                                                    | 是否判定为不良坐姿               |
-| `nose_drop`    | `DOUBLE PRECISION`                                                    | 鼻尖相对双肩垂直偏移量           |
-| `neck_angle`   | `DOUBLE PRECISION`                                                    | 颈部与躯干的夹角                 |
-| `reasons`      | `TEXT`                                                                | 命中规则／原因文本               |
-| `face_distance`| `DOUBLE PRECISION`                                                    | 人脸比对距离                     |
-| `frame_path`   | `TEXT`                                                                | 抓拍图像路径（启用 `frame_save`） |
-| `timestamp`    | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                     |
+- `face_captures`：记录所有识别到的人员（包含 `unknown`）
+
+| 字段             | 类型                                                                 | 说明                               |
+| ---------------- | -------------------------------------------------------------------- | ---------------------------------- |
+| `id`             | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                        |
+| `identity`       | `TEXT NOT NULL`                                                       | 识别身份（如 `child/恩恩`、`unknown`） |
+| `group_tag`      | `TEXT NOT NULL`                                                       | 身份分组（child/parent/unknown 等）  |
+| `face_distance`  | `DOUBLE PRECISION`                                                    | 人脸比对距离                        |
+| `frame_path`     | `TEXT`                                                                | 保存的帧路径                        |
+| `snapshot_type`  | `TEXT`                                                                | 预留字段（enter/exit 等）           |
+| `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 捕获时间                            |
+
+- `posture_events`：仅针对受监控儿童的坐姿记录
+
+| 字段             | 类型                                                                 | 说明                                  |
+| ---------------- | -------------------------------------------------------------------- | ------------------------------------- |
+| `id`             | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                           |
+| `identity`       | `TEXT NOT NULL`                                                       | 当前识别身份（child/xxx）               |
+| `is_bad`         | `BOOLEAN NOT NULL`                                                    | 是否判定为不良坐姿                      |
+| `nose_drop`      | `DOUBLE PRECISION`                                                    | 鼻尖相对双肩垂直偏移量                  |
+| `neck_angle`     | `DOUBLE PRECISION`                                                    | 颈部与躯干的夹角                        |
+| `reasons`        | `TEXT`                                                                | 命中规则／原因文本                      |
+| `face_distance`  | `DOUBLE PRECISION`                                                    | 人脸比对距离                            |
+| `frame_path`     | `TEXT`                                                                | 坐姿截图路径（复用 face capture 图像） |
+| `face_capture_id`| `INTEGER REFERENCES face_captures(id)`                                | 关联的人脸抓拍记录                      |
+| `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                           |
 
 ---
 
