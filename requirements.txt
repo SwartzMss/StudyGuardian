@@ -2,6 +2,6 @@ opencv-python-headless>=4.7.0
 PyYAML>=6.0
 loguru>=0.7
 face_recognition>=1.3.0
-# Pin to latest version available for aarch64 wheels on PyPI / piwheels.
-mediapipe>=0.10.9,<0.11
+# Allow future Mediapipe releases (0.10.18 is current baseline).
+mediapipe>=0.10.18,<0.12
 psycopg2-binary>=2.9

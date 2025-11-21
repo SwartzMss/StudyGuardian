@@ -44,7 +44,7 @@ class PostureService:
         results = self._pose.process(rgb)
         landmarks = results.pose_landmarks
         if landmarks is None or not landmarks.landmark:
-            logger.debug("No pose landmarks detected")
+            logger.info("No pose landmarks detected")
             return None
 
         lm = landmarks.landmark

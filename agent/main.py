@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 import os
+import sys
 from urllib.parse import urlparse
 from typing import Any, Callable, Dict, Optional, Set, Tuple
 
 import cv2
 import yaml
 from loguru import logger
+
+# Quiet TFLite / cpuinfo warnings unless user overrides.
+os.environ.setdefault("CPUINFO_LOG_LEVEL", "error")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
 
 from agent.capture import (
     CameraStream,
@@ -165,9 +168,9 @@ def make_frame_handler(
             identity = primary.identity
             distance = primary.distance
             if identity == "unknown":
-                logger.debug("Unknown person detected (dist %.2f)", distance)
+                logger.info("Unknown person detected (dist {:.2f})", distance)
             else:
-                logger.info("Recognized %s (dist %.2f)", identity, distance)
+                logger.info("Recognized {} (dist {:.2f})", identity, distance)
         else:
             logger.debug("No faces detected in current frame")
 
@@ -187,7 +190,7 @@ def make_frame_handler(
                 group_match = identity_group in monitored_groups
             should_analyze = identity_match or group_match
         if not should_analyze:
-            logger.debug("Skipping posture analysis for %s; identity not in monitored list", identity)
+            logger.debug("Skipping posture analysis for {}; identity not in monitored list", identity)
             return True
 
         posture = posture_service.analyze(frame)
@@ -201,7 +204,12 @@ def make_frame_handler(
                     ", ".join(posture.reasons),
                 )
             else:
-                logger.debug("Posture looks good (%.3f drop / %.1f°) for %s", posture.nose_drop, posture.neck_angle, identity)
+                logger.info(
+                    "Posture looks good ({:.3f} drop / {:.1f}°) for {}",
+                    posture.nose_drop,
+                    posture.neck_angle,
+                    identity,
+                )
             storage.log_posture(
                 identity=identity,
                 is_bad=posture.bad,
@@ -211,7 +219,7 @@ def make_frame_handler(
                 face_distance=distance,
             )
         else:
-            logger.debug("Posture not available for %s", identity)
+            logger.info("Posture not available for {}", identity)
 
         return True
 
