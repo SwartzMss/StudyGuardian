@@ -50,7 +50,7 @@ class FrameSaver:
         path = target_dir / filename
         if cv2.imwrite(str(path), frame):
             self._last_saved = now
-            logger.debug("Saved frame snapshot to {}", path)
+            logger.info("Saved frame snapshot to {}", path)
             return path
 
         logger.warning("Unable to save frame to {}", path)
