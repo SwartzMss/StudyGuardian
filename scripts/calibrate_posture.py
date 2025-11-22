@@ -11,11 +11,16 @@ import datetime as dt
 from pathlib import Path
 from typing import Any, Dict, List
 
+import cv2
+import mediapipe as mp
 import yaml
 from loguru import logger
 
 from agent.capture import CameraStream
 from agent.main import build_posture_service, ensure_no_proxy, load_settings
+
+_DRAWING_UTILS = mp.solutions.drawing_utils
+_DRAWING_STYLES = mp.solutions.drawing_styles
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,6 +32,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--nose-margin", type=float, default=0.03, help="Extra margin added to avg nose_drop")
     parser.add_argument("--angle-margin", type=float, default=5.0, help="Extra margin added to avg neck_angle")
+    parser.add_argument(
+        "--save-dir", type=Path, default=Path("data/calibration"), help="Directory to save annotated snapshots"
+    )
     return parser.parse_args()
 
 
@@ -36,9 +44,12 @@ def _collect_samples(
     target_samples: int,
     max_frames: int,
     posture_service,
+    save_dir: Path,
 ) -> tuple[List[float], List[float]]:
     drops: list[float] = []
     angles: list[float] = []
+
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     stream = CameraStream(
         source=camera_url,
@@ -49,10 +60,18 @@ def _collect_samples(
     )
 
     def _collect(frame: "Any") -> bool:
-        assessment = posture_service.analyze(frame)
+        assessment, landmarks = posture_service.analyze_with_landmarks(frame)
         if assessment:
             drops.append(assessment.nose_drop)
             angles.append(assessment.neck_angle)
+            _save_snapshot(
+                frame,
+                landmarks,
+                save_dir,
+                sample_idx=len(drops),
+                nose_drop=assessment.nose_drop,
+                neck_angle=assessment.neck_angle,
+            )
             logger.info(
                 "Sample #%d nose_drop=%.3f neck_angle=%.1f",
                 len(drops),
@@ -81,6 +100,7 @@ def main() -> None:
     ensure_no_proxy(camera_url)
     capture_cfg = settings.get("capture", {}) or {}
     posture_cfg = settings.get("posture", {}) or {}
+    save_dir = args.save_dir if args.save_dir.is_absolute() else (root / args.save_dir)
 
     target_samples = args.samples
     max_frames = args.max_frames or target_samples * 2
@@ -94,7 +114,7 @@ def main() -> None:
     )
 
     posture_service = build_posture_service(posture_cfg)
-    drops, angles = _collect_samples(camera_url, capture_cfg, target_samples, max_frames, posture_service)
+    drops, angles = _collect_samples(camera_url, capture_cfg, target_samples, max_frames, posture_service, save_dir)
     posture_service.close()
 
     if not drops:
@@ -128,6 +148,39 @@ def main() -> None:
         avg_angle,
     )
     logger.info("Settings saved to %s", (root / settings_path))
+
+
+def _save_snapshot(
+    frame: "Any",
+    landmarks: Any,
+    save_dir: Path,
+    sample_idx: int,
+    nose_drop: float,
+    neck_angle: float,
+) -> None:
+    annotated = frame.copy()
+    timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if landmarks is not None:
+        _DRAWING_UTILS.draw_landmarks(
+            annotated,
+            landmarks,
+            mp.solutions.pose.POSE_CONNECTIONS,
+            landmark_drawing_spec=_DRAWING_STYLES.get_default_pose_landmarks_style(),
+        )
+    overlay = f"Sample {sample_idx}  nose_drop={nose_drop:.3f}  neck_angle={neck_angle:.1f}  {timestamp}"
+    cv2.putText(
+        annotated,
+        overlay,
+        (10, 30),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.7,
+        (0, 255, 0),
+        2,
+        cv2.LINE_AA,
+    )
+    filename = f"calibration_{sample_idx:03d}.jpg"
+    path = save_dir / filename
+    cv2.imwrite(str(path), annotated)
 
 
 if __name__ == "__main__":

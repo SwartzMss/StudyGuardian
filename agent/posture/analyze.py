@@ -42,17 +42,33 @@ class PostureService:
         self._config.neck_angle = neck_angle
 
     def analyze(self, frame: "np.ndarray") -> Optional[PostureAssessment]:
-        if frame is None:
-            return None
+        assessment, _ = self.analyze_with_landmarks(frame)
+        return assessment
 
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = self._pose.process(rgb)
-        landmarks = results.pose_landmarks
+    def analyze_with_landmarks(
+        self, frame: "np.ndarray"
+    ) -> tuple[Optional[PostureAssessment], Optional[mp.framework.formats.landmark_pb2.NormalizedLandmarkList]]:
+        if frame is None:
+            return None, None
+
+        landmarks = self._process_landmarks(frame)
         if landmarks is None or not landmarks.landmark:
             logger.info("No pose landmarks detected")
-            return None
+            return None, None
 
-        lm = landmarks.landmark
+        assessment = self._assess_landmarks(landmarks.landmark)
+        return assessment, landmarks
+
+    def _process_landmarks(
+        self, frame: "np.ndarray"
+    ) -> Optional[mp.framework.formats.landmark_pb2.NormalizedLandmarkList]:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        results = self._pose.process(rgb)
+        return results.pose_landmarks
+
+    def _assess_landmarks(
+        self, lm: Sequence[landmark_pb2.NormalizedLandmark]
+    ) -> Optional[PostureAssessment]:
         nose = lm[self._mp_pose.PoseLandmark.NOSE]
         left_shoulder = lm[self._mp_pose.PoseLandmark.LEFT_SHOULDER]
         right_shoulder = lm[self._mp_pose.PoseLandmark.RIGHT_SHOULDER]
