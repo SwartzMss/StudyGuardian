@@ -18,8 +18,6 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
 
 from agent.capture import (
     CameraStream,
-    FrameSaveConfig,
-    FrameSaver,
     IdentityCapture,
     IdentityCaptureConfig,
 )
@@ -69,7 +67,11 @@ def build_frame_saver(root: Path, config: Dict[str, Any]) -> Optional[FrameSaver
     return FrameSaver(frame_config)
 
 
-def build_identity_capture(root: Path, config: Dict[str, Any]) -> Optional[IdentityCapture]:
+def build_identity_capture(
+    root: Path,
+    config: Dict[str, Any],
+    default_identities: Optional[Set[str]] = None,
+) -> Optional[IdentityCapture]:
     enabled = bool(config.get("enable", False))
     if not enabled:
         return None
@@ -87,8 +89,8 @@ def build_identity_capture(root: Path, config: Dict[str, Any]) -> Optional[Ident
     )
     groups = _ensure_string_set(config.get("groups"))
     identities = _ensure_string_set(config.get("identities"))
-    if not groups and not identities:
-        identities = {"unknown"}
+    if not groups and not identities and default_identities:
+        identities = set(default_identities)
     return IdentityCapture(capture_config, groups=groups, identities=identities)
 
 
@@ -279,16 +281,17 @@ def main() -> None:
     configure_logger(root, settings.get("logging", {}))
     logger.info("Starting StudyGuardian camera ingest")
 
-    frame_saver = build_frame_saver(root, settings.get("frame_save", {}))
-
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(settings.get("posture", {}))
     storage = build_storage(settings.get("storage", {}))
     monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
     face_capture_cfg = settings.get("face_capture")
+    default_identities: Optional[Set[str]] = None
     if face_capture_cfg is None:
         face_capture_cfg = settings.get("unknown_capture", {})
-    identity_capture = build_identity_capture(root, face_capture_cfg)
+        default_identities = {"unknown"}
+    face_capture_cfg = face_capture_cfg or {}
+    identity_capture = build_identity_capture(root, face_capture_cfg, default_identities=default_identities)
 
     capture_cfg = settings.get("capture", {})
     ensure_no_proxy(settings.get("camera_url"))
@@ -297,7 +300,7 @@ def main() -> None:
         target_fps=float(capture_cfg.get("target_fps", 15)),
         reconnect_delay=float(capture_cfg.get("reconnect_delay", 5)),
         max_retries=int(capture_cfg.get("max_retries", 3)),
-        frame_saver=frame_saver,
+        frame_saver=None,
     )
 
     try:
