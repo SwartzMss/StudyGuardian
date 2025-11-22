@@ -20,4 +20,4 @@ pip install --upgrade pip
 pip install -r "$ROOT_DIR/requirements.txt"
 
 cd "$ROOT_DIR"
-python scripts/calibrate_posture.py "$@"
+python agent/calibrate_posture.py "$@"
