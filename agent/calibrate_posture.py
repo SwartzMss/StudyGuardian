@@ -106,6 +106,11 @@ def main() -> None:
     ensure_no_proxy(camera_url)
     capture_cfg = settings.get("capture", {}) or {}
     posture_cfg = settings.get("posture", {}) or {}
+    # Fallback thresholds during calibration to avoid NoneType casting errors.
+    if posture_cfg.get("nose_drop") is None:
+        posture_cfg["nose_drop"] = 1.0  # permissive placeholder; real value will be overwritten
+    if posture_cfg.get("neck_angle") is None:
+        posture_cfg["neck_angle"] = 180.0
     save_dir = args.save_dir if args.save_dir.is_absolute() else (root / args.save_dir)
 
     target_samples = args.samples
