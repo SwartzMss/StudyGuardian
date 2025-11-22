@@ -281,6 +281,12 @@ def main() -> None:
     configure_logger(root, settings.get("logging", {}))
     logger.info("Starting StudyGuardian camera ingest")
 
+    calibration_state = settings.get("posture_calibration") or {}
+    if not calibration_state.get("calibrated"):
+        raise RuntimeError(
+            "Posture calibration required. Run `python scripts/calibrate_posture.py` first to update config."
+        )
+
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(settings.get("posture", {}))
     storage = build_storage(settings.get("storage", {}))
@@ -295,6 +301,14 @@ def main() -> None:
 
     capture_cfg = settings.get("capture", {})
     ensure_no_proxy(settings.get("camera_url"))
+
+    calibrate_posture(
+        posture_service,
+        settings.get("camera_url", ""),
+        capture_cfg,
+        settings.get("posture_calibration", {}),
+    )
+
     stream = CameraStream(
         source=settings.get("camera_url", ""),
         target_fps=float(capture_cfg.get("target_fps", 15)),

@@ -36,6 +36,11 @@ class PostureService:
         self._mp_pose = mp.solutions.pose
         self._pose = self._mp_pose.Pose(min_detection_confidence=0.4, min_tracking_confidence=0.4)
 
+    def set_thresholds(self, nose_drop: float, neck_angle: float) -> None:
+        """Update posture thresholds (useful after calibration)."""
+        self._config.nose_drop = nose_drop
+        self._config.neck_angle = neck_angle
+
     def analyze(self, frame: "np.ndarray") -> Optional[PostureAssessment]:
         if frame is None:
             return None
