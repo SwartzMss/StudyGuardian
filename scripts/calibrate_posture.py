@@ -108,9 +108,8 @@ def main() -> None:
     settings.setdefault("posture", {})
     settings["posture"]["nose_drop"] = round(new_drop, 4)
     settings["posture"]["neck_angle"] = round(new_angle, 2)
-    settings["posture_calibration"] = {
-        "calibrated": True,
-        "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+    settings["posture_metadata"] = {
+        "calibrated_at": dt.datetime.utcnow().isoformat() + "Z",
         "samples": len(drops),
         "nose_margin": args.nose_margin,
         "angle_margin": args.angle_margin,

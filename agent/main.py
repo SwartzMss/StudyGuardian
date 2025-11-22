@@ -106,8 +106,8 @@ def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
 
 def build_posture_service(config: Dict[str, Any]) -> PostureService:
     posture_config = PostureConfig(
-        nose_drop=float(config.get("nose_drop", 0.12)),
-        neck_angle=float(config.get("neck_angle", 45)),
+        nose_drop=float(config.get("nose_drop")),
+        neck_angle=float(config.get("neck_angle")),
     )
     return PostureService(posture_config)
 
@@ -281,14 +281,15 @@ def main() -> None:
     configure_logger(root, settings.get("logging", {}))
     logger.info("Starting StudyGuardian camera ingest")
 
-    calibration_state = settings.get("posture_calibration") or {}
-    if not calibration_state.get("calibrated"):
+    posture_cfg = settings.get("posture", {}) or {}
+    if posture_cfg.get("nose_drop") is None or posture_cfg.get("neck_angle") is None:
         raise RuntimeError(
-            "Posture calibration required. Run `python scripts/calibrate_posture.py` first to update config."
+            "Posture thresholds not configured. Run `python scripts/calibrate_posture.py` "
+            "to set posture.nose_drop and posture.neck_angle in config/settings.yaml"
         )
 
     face_service = build_face_service(root, settings.get("face_recognition", {}))
-    posture_service = build_posture_service(settings.get("posture", {}))
+    posture_service = build_posture_service(posture_cfg)
     storage = build_storage(settings.get("storage", {}))
     monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
     face_capture_cfg = settings.get("face_capture")
