@@ -10,11 +10,17 @@ import argparse
 import datetime as dt
 from pathlib import Path
 from typing import Any, Dict, List
+import sys
 
 import cv2
 import mediapipe as mp
 import yaml
 from loguru import logger
+
+# Ensure project root is importable when running as a script
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from agent.capture import CameraStream
 from agent.main import build_posture_service, ensure_no_proxy, load_settings
