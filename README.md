@@ -194,6 +194,16 @@ StudyGuardian/
    python -m agent.main
    ```
 
+### Sensor Manager
+
+单独运行传感器管理（当前支持 PIR）：
+
+```bash
+python -m sensors.main --config config/settings.yaml
+```
+
+在 `config/settings.yaml` 设置 `pir_sensor.enable: true` 与 `pir_sensor.gpio_pin`（默认 BCM 23）。依赖 `gpiozero`/`lgpio`。
+
 ### Convenient Start Script
 
 执行 `scripts/start_agent.sh` 会创建 `.venv` 虚拟环境、升级 `pip`、安装 `requirements.txt`，然后启动 `agent.main`。如需指定 Python 可先设置 `PYTHON_BIN` 环境变量（例如 `PYTHON_BIN=python3.11 scripts/start_agent.sh`）。脚本默认读取 `config/settings.yaml` 中的 `storage.postgres_dsn`，请先设定好 PostgreSQL 访问串；agent 在启动时会根据摄像头地址自动配置 `no_proxy`（默认包括 `localhost`、`127.0.0.1` 以及 camera_url 自身），确保本地流请求不走代理。
