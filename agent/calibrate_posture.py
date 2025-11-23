@@ -140,7 +140,8 @@ def main() -> None:
     settings["posture"]["nose_drop"] = round(new_drop, 4)
     settings["posture"]["neck_angle"] = round(new_angle, 2)
     settings["posture_metadata"] = {
-        "calibrated_at": dt.datetime.utcnow().isoformat() + "Z",
+        # Use local time with offset to avoid confusion when viewing logs/files.
+        "calibrated_at": dt.datetime.now().astimezone().isoformat(),
         "samples": len(drops),
         "nose_margin": args.nose_margin,
         "angle_margin": args.angle_margin,

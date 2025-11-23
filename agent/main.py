@@ -196,10 +196,6 @@ def make_frame_handler(
         else:
             logger.debug("No faces detected in current frame")
 
-        if not had_faces:
-            logger.debug("Skipping posture analysis; no faces detected")
-            return True
-
         should_analyze = True
         if monitored_identities or monitored_groups:
             identity_match = monitored_identities is not None and identity in monitored_identities
@@ -207,7 +203,9 @@ def make_frame_handler(
             if monitored_groups and identity not in ("", "unknown"):
                 identity_group = identity.split("/", 1)[0]
                 group_match = identity_group in monitored_groups
-            should_analyze = identity_match or group_match
+            # If we saw a face, enforce filters; if no face, still analyze posture (identity stays "unknown").
+            if had_faces:
+                should_analyze = identity_match or group_match
         if not should_analyze:
             logger.debug("Skipping posture analysis for {}; identity not in monitored list", identity)
             return True
@@ -271,6 +269,21 @@ def ensure_no_proxy(camera_url: str | None) -> None:
     value = ",".join(sorted(hosts))
     os.environ["no_proxy"] = value
     os.environ["NO_PROXY"] = value
+
+
+def calibrate_posture(
+    _posture_service: PostureService,
+    _camera_url: str,
+    _capture_cfg: Dict[str, Any],
+    calibration_cfg: Dict[str, Any],
+) -> None:
+    """Placeholder hook to keep inline calibration optional."""
+    if not calibration_cfg or not calibration_cfg.get("enable"):
+        return
+    logger.warning(
+        "Inline posture calibration is not implemented. Run `scripts/calibrate_posture.sh` "
+        "to generate thresholds instead."
+    )
 
 
 def main() -> None:

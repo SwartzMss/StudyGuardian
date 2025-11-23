@@ -105,16 +105,15 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
         group_tag: str,
         face_distance: float | None,
         frame_path: str | None,
-        snapshot_type: str | None = None,
     ) -> int:
-        columns = ["identity", "group_tag", "face_distance", "frame_path", "snapshot_type"]
+        columns = ["identity", "group_tag", "face_distance", "frame_path"]
         placeholders = ", ".join([self._param] * len(columns))
         query = (
             f"INSERT INTO {self._face_table} "
             f"({', '.join(columns)}) VALUES ({placeholders}) RETURNING id"
         )
         cursor = self._conn.cursor()
-        cursor.execute(query, (identity, group_tag, face_distance, frame_path, snapshot_type))
+        cursor.execute(query, (identity, group_tag, face_distance, frame_path))
         face_id = cursor.fetchone()[0]
         cursor.close()
         self._conn.commit()
@@ -142,7 +141,6 @@ CREATE TABLE IF NOT EXISTS {self._face_table} (
   group_tag TEXT NOT NULL,
   face_distance DOUBLE PRECISION,
   frame_path TEXT,
-  snapshot_type TEXT,
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 """
