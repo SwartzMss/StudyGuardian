@@ -198,8 +198,10 @@ python -m agent.main
 
 PIR 现在直接由 `agent.main` 管理，无需额外的 `sensors` 进程。 在 `config/settings.yaml` 设置
 `pir_sensor.enable: true` 和 `pir_sensor.gpio_pin`（默认 BCM 23）即可，依赖 `gpiozero`/`lgpio`。可选：
-`pir_sensor.active_window_seconds`（默认 600 秒）用于每次感应到人时开启/续期采集窗口；
 `pir_sensor.no_face_timeout_seconds`（默认 10 秒）用于窗口内连续无脸时自动停止采集。
+
+识别/监控规则：默认仅对识别为 `child` 分组的人做姿势分析（`monitored_groups` 不配置时自动等于 `["child"]`），
+不在监控列表或识别不到人脸（unknown）的帧会跳过姿势分析。
 
 ### Convenient Start Script
 

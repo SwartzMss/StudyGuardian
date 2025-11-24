@@ -32,20 +32,22 @@ from agent.sensors import PIRSensor, build_pir_sensor
 class MotionGate:
     """Gate frame processing based on PIR activity and face presence."""
 
-    def __init__(self, active_window_seconds: float, idle_timeout_seconds: float) -> None:
-        self._active_window = active_window_seconds
+    def __init__(
+        self,
+        idle_timeout_seconds: float,
+    ) -> None:
         self._idle_timeout = idle_timeout_seconds
         self._lock = threading.Lock()
-        self._active_until = 0.0
+        self._active = False
         self._last_face_ts = 0.0
 
     def activate(self) -> float:
         """Enable processing window and reset idle timer."""
         now = time.monotonic()
         with self._lock:
-            self._active_until = now + self._active_window
-            self._last_face_ts = now
-            return self._active_until
+            self._active = True
+            self._last_face_ts = now  # start timeout countdown immediately
+            return now
 
     def mark_face_seen(self) -> None:
         with self._lock:
@@ -55,13 +57,10 @@ class MotionGate:
         """Return (active, reason_if_disabled)."""
         now = time.monotonic()
         with self._lock:
-            if self._active_until <= 0:
+            if not self._active:
                 return False, None
-            if now > self._active_until:
-                self._active_until = 0.0
-                return False, "PIR window expired"
             if self._last_face_ts > 0 and (now - self._last_face_ts) > self._idle_timeout:
-                self._active_until = 0.0
+                self._active = False
                 return False, f"no faces for {now - self._last_face_ts:.1f}s"
             return True, None
 
@@ -192,6 +191,8 @@ def _parse_monitoring_filters(settings: Dict[str, Any]) -> Tuple[Optional[Set[st
     monitored_groups = _merge_sets(
         monitored_groups, _ensure_string_set(monitoring_block.get("groups"))
     )
+    if monitored_identities is None and monitored_groups is None:
+        monitored_groups = {"child"}
     return monitored_identities, monitored_groups
 
 
@@ -244,7 +245,8 @@ def make_frame_handler(
             if motion_gate is not None:
                 motion_gate.mark_face_seen()
         else:
-            logger.debug("No faces detected in current frame")
+            logger.debug("No faces detected in current frame; posture skipped")
+            return True
 
         should_analyze = True
         if monitored_identities or monitored_groups:
@@ -253,9 +255,7 @@ def make_frame_handler(
             if monitored_groups and identity not in ("", "unknown"):
                 identity_group = identity.split("/", 1)[0]
                 group_match = identity_group in monitored_groups
-            # If we saw a face, enforce filters; if no face, still analyze posture (identity stays "unknown").
-            if had_faces:
-                should_analyze = identity_match or group_match
+            should_analyze = identity_match or group_match
         if not should_analyze:
             logger.debug("Skipping posture analysis for {}; identity not in monitored list", identity)
             return True
@@ -293,7 +293,7 @@ def make_frame_handler(
                 face_capture_id=face_capture_id,
             )
         else:
-            logger.info("Posture not available for {}", identity)
+            logger.debug("Posture not available for {}", identity)
 
         return True
 
@@ -348,28 +348,25 @@ def main() -> None:
     pir_cfg = settings.get("pir_sensor") or {}
     motion_gate: Optional[MotionGate] = None
     motion_event = threading.Event()
-    active_window_seconds = float(pir_cfg.get("active_window_seconds", 600.0))
     idle_timeout_seconds = float(pir_cfg.get("no_face_timeout_seconds", 10.0))
 
     def _on_motion(active: bool) -> None:
         nonlocal motion_gate
         if not active or motion_gate is None:
             return
-        deadline = motion_gate.activate()
+        motion_gate.activate()
         motion_event.set()
         logger.info(
-            "PIR motion detected; capture window extended {:.0f}s ({:.0f}s left)",
-            active_window_seconds,
-            max(0.0, deadline - time.monotonic()),
+            "PIR motion detected; capture running until {}s of no faces",
+            idle_timeout_seconds,
         )
 
     try:
-        motion_gate = MotionGate(active_window_seconds, idle_timeout_seconds)
+        motion_gate = MotionGate(idle_timeout_seconds)
         pir_sensor = build_pir_sensor(pir_cfg, on_motion=_on_motion)
         if pir_sensor:
             logger.info(
-                "PIR sensor enabled (active_window_seconds={:.0f}, no_face_timeout_seconds={:.0f})",
-                active_window_seconds,
+                "PIR sensor enabled (no_face_timeout_seconds={:.0f})",
                 idle_timeout_seconds,
             )
     except Exception as exc:  # pragma: no cover - hardware/runtime concerns

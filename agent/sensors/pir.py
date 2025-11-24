@@ -50,7 +50,7 @@ class PIRSensor:
             self._on_motion(True)
 
     def _handle_no_motion(self) -> None:  # pragma: no cover - hardware callbacks
-        logger.info("Motion cleared")
+        logger.debug("Motion cleared")
         if self._on_motion:
             self._on_motion(False)
 
