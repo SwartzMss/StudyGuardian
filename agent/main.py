@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set, Tuple
@@ -24,6 +26,44 @@ from agent.capture import (
 from agent.posture import PostureConfig, PostureService
 from agent.recognition import FaceMatch, FaceService
 from agent.storage import Storage, StorageConfig
+from agent.sensors import PIRSensor, build_pir_sensor
+
+
+class MotionGate:
+    """Gate frame processing based on PIR activity and face presence."""
+
+    def __init__(self, active_window_seconds: float, idle_timeout_seconds: float) -> None:
+        self._active_window = active_window_seconds
+        self._idle_timeout = idle_timeout_seconds
+        self._lock = threading.Lock()
+        self._active_until = 0.0
+        self._last_face_ts = 0.0
+
+    def activate(self) -> float:
+        """Enable processing window and reset idle timer."""
+        now = time.monotonic()
+        with self._lock:
+            self._active_until = now + self._active_window
+            self._last_face_ts = now
+            return self._active_until
+
+    def mark_face_seen(self) -> None:
+        with self._lock:
+            self._last_face_ts = time.monotonic()
+
+    def should_process(self) -> Tuple[bool, Optional[str]]:
+        """Return (active, reason_if_disabled)."""
+        now = time.monotonic()
+        with self._lock:
+            if self._active_until <= 0:
+                return False, None
+            if now > self._active_until:
+                self._active_until = 0.0
+                return False, "PIR window expired"
+            if self._last_face_ts > 0 and (now - self._last_face_ts) > self._idle_timeout:
+                self._active_until = 0.0
+                return False, f"no faces for {now - self._last_face_ts:.1f}s"
+            return True, None
 
 
 def load_settings(path: Path) -> Dict[str, Any]:
@@ -162,8 +202,16 @@ def make_frame_handler(
     monitored_identities: Optional[Set[str]] = None,
     monitored_groups: Optional[Set[str]] = None,
     identity_capture: Optional[IdentityCapture] = None,
+    motion_gate: Optional[MotionGate] = None,
 ) -> Callable[[cv2.Mat], bool]:
     def handler(frame: "cv2.Mat") -> bool:
+        if motion_gate is not None:
+            active, reason = motion_gate.should_process()
+            if not active:
+                if reason:
+                    logger.info("Stopping capture; {}", reason)
+                return False
+
         matches: list[FaceMatch] = face_service.recognize(frame)
         had_faces = bool(matches)
         identity = "unknown"
@@ -193,6 +241,8 @@ def make_frame_handler(
                 logger.info("Unknown person detected (dist {:.2f})", distance)
             else:
                 logger.info("Recognized {} (dist {:.2f})", identity, distance)
+            if motion_gate is not None:
+                motion_gate.mark_face_seen()
         else:
             logger.debug("No faces detected in current frame")
 
@@ -294,6 +344,37 @@ def main() -> None:
     configure_logger(root, settings.get("logging", {}))
     logger.info("Starting StudyGuardian camera ingest")
 
+    pir_sensor: Optional[PIRSensor] = None
+    pir_cfg = settings.get("pir_sensor") or {}
+    motion_gate: Optional[MotionGate] = None
+    motion_event = threading.Event()
+    active_window_seconds = float(pir_cfg.get("active_window_seconds", 600.0))
+    idle_timeout_seconds = float(pir_cfg.get("no_face_timeout_seconds", 10.0))
+
+    def _on_motion(active: bool) -> None:
+        nonlocal motion_gate
+        if not active or motion_gate is None:
+            return
+        deadline = motion_gate.activate()
+        motion_event.set()
+        logger.info(
+            "PIR motion detected; capture window extended {:.0f}s ({:.0f}s left)",
+            active_window_seconds,
+            max(0.0, deadline - time.monotonic()),
+        )
+
+    try:
+        motion_gate = MotionGate(active_window_seconds, idle_timeout_seconds)
+        pir_sensor = build_pir_sensor(pir_cfg, on_motion=_on_motion)
+        if pir_sensor:
+            logger.info(
+                "PIR sensor enabled (active_window_seconds={:.0f}, no_face_timeout_seconds={:.0f})",
+                active_window_seconds,
+                idle_timeout_seconds,
+            )
+    except Exception as exc:  # pragma: no cover - hardware/runtime concerns
+        logger.warning("PIR sensor failed to start: {}", exc)
+
     posture_cfg = settings.get("posture", {}) or {}
     if posture_cfg.get("nose_drop") is None or posture_cfg.get("neck_angle") is None:
         raise RuntimeError(
@@ -323,33 +404,51 @@ def main() -> None:
         settings.get("posture_calibration", {}),
     )
 
-    stream = CameraStream(
-        source=settings.get("camera_url", ""),
-        target_fps=float(capture_cfg.get("target_fps", 15)),
-        reconnect_delay=float(capture_cfg.get("reconnect_delay", 5)),
-        max_retries=int(capture_cfg.get("max_retries", 3)),
-        frame_saver=None,
-    )
+    def _iterate_stream() -> None:
+        stream = CameraStream(
+            source=settings.get("camera_url", ""),
+            target_fps=float(capture_cfg.get("target_fps", 15)),
+            reconnect_delay=float(capture_cfg.get("reconnect_delay", 5)),
+            max_retries=int(capture_cfg.get("max_retries", 3)),
+            frame_saver=None,
+        )
+        try:
+            stream.iterate(
+                on_frame=make_frame_handler(
+                    face_service,
+                    posture_service,
+                    storage,
+                    monitored_identities=monitored_identities,
+                    monitored_groups=monitored_groups,
+                    identity_capture=identity_capture,
+                    motion_gate=motion_gate if pir_sensor else None,
+                )
+            )
+        finally:
+            stream.release()
 
     try:
-        stream.iterate(
-            on_frame=make_frame_handler(
-                face_service,
-                posture_service,
-                storage,
-                monitored_identities=monitored_identities,
-                monitored_groups=monitored_groups,
-                identity_capture=identity_capture,
-            )
-        )
+        while True:
+            if pir_sensor:
+                logger.info("Waiting for PIR motion to start capture")
+                try:
+                    motion_event.wait()
+                except KeyboardInterrupt:
+                    logger.info("Interrupted while waiting for PIR motion, shutting down")
+                    break
+                motion_event.clear()
+            _iterate_stream()
+            if not pir_sensor:
+                break
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns
         logger.exception("Stream ingestion failed: {}", exc)
     finally:
-        stream.release()
         storage.close()
         posture_service.close()
+        if pir_sensor:
+            pir_sensor.close()
 
 
 if __name__ == "__main__":

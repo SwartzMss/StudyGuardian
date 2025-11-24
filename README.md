@@ -91,7 +91,7 @@ if nose_y - shoulder_y > 0.12:
 
 - 树莓派本地播放提示音（`pygame.mixer`）。
 - HDMI 屏幕弹出提醒文字。
-- 可选：MQTT、Telegram 或微信推送至家长手机。
+- 可选：Telegram 或微信推送至家长手机（MQTT 当前未启用）。
 
 ### 3.4 Logging & Storage｜事件记录
 
@@ -191,18 +191,15 @@ StudyGuardian/
    `storage.reset_on_start` 设为 `true` 时，每次启动都会删除并重建两张事件表（`face_captures`、`posture_events`），慎用（仅适合测试环境）。
 3. **Run StudyGuardian**
    ```bash
-   python -m agent.main
-   ```
-
-### Sensor Manager
-
-单独运行传感器管理（当前支持 PIR）：
-
-```bash
-python -m sensors.main --config config/settings.yaml
+python -m agent.main
 ```
 
-在 `config/settings.yaml` 设置 `pir_sensor.enable: true` 与 `pir_sensor.gpio_pin`（默认 BCM 23）。依赖 `gpiozero`/`lgpio`。
+### PIR Sensor
+
+PIR 现在直接由 `agent.main` 管理，无需额外的 `sensors` 进程。 在 `config/settings.yaml` 设置
+`pir_sensor.enable: true` 和 `pir_sensor.gpio_pin`（默认 BCM 23）即可，依赖 `gpiozero`/`lgpio`。可选：
+`pir_sensor.active_window_seconds`（默认 600 秒）用于每次感应到人时开启/续期采集窗口；
+`pir_sensor.no_face_timeout_seconds`（默认 10 秒）用于窗口内连续无脸时自动停止采集。
 
 ### Convenient Start Script
 

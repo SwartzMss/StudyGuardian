@@ -7,4 +7,3 @@ mediapipe>=0.10.18,<0.12
 psycopg2-binary>=2.9
 gpiozero>=2.0.1
 lgpio>=0.2.2.0
-paho-mqtt>=2.1

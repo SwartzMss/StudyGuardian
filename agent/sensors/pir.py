@@ -61,7 +61,8 @@ class PIRSensor:
             pass
 
 
-def build_pir_sensor(config: dict) -> Optional[PIRSensor]:
+def build_pir_sensor(config: dict, on_motion: Optional[MotionCallback] = None) -> Optional[PIRSensor]:
+    """Return an initialized PIR sensor (or None if disabled/misconfigured)."""
     if not config or not config.get("enable", False):
         return None
     try:
@@ -70,7 +71,8 @@ def build_pir_sensor(config: dict) -> Optional[PIRSensor]:
                 gpio_pin=int(config.get("gpio_pin", 23)),
                 enable=True,
                 settle_seconds=float(config.get("settle_seconds", 2.0)),
-            )
+            ),
+            on_motion=on_motion,
         )
     except Exception as exc:
         logger.warning("PIR sensor not started: {}", exc)
