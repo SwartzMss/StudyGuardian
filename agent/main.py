@@ -53,6 +53,10 @@ class MotionGate:
         with self._lock:
             self._last_face_ts = time.monotonic()
 
+    def deactivate(self) -> None:
+        with self._lock:
+            self._active = False
+
     def should_process(self) -> Tuple[bool, Optional[str]]:
         """Return (active, reason_if_disabled)."""
         now = time.monotonic()
@@ -421,6 +425,10 @@ def main() -> None:
                     motion_gate=motion_gate if pir_sensor else None,
                 )
             )
+        except Exception as exc:  # pragma: no cover - runtime concerns
+            logger.warning("Stream iteration failed: {}", exc)
+            if motion_gate:
+                motion_gate.deactivate()
         finally:
             stream.release()
 
@@ -440,7 +448,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Interrupted, shutting down")
     except Exception as exc:  # pragma: no cover - runtime concerns
-        logger.exception("Stream ingestion failed: {}", exc)
+        logger.warning("Stream ingestion failed: {}", exc)
     finally:
         storage.close()
         posture_service.close()
