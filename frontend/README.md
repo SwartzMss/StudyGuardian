@@ -45,3 +45,17 @@ frontend/
 - 儿童学习场景：明亮、低饱和的色彩（淡蓝/薄荷/暖黄），大号易读字体。
 - 提醒状态用明确的色彩与文案（Good/Needs Attention）。
 - 移动端首屏优先：实时状态卡片在上方，过滤器折叠，表格切成卡片式列表。
+
+## 快速预览（仅查看）
+- 已改为 React + Vite。首次安装依赖：
+  ```bash
+  cd frontend
+  npm install
+  ```
+- 开发/预览：
+  ```bash
+  npm run dev   # http://localhost:5173
+  # 浏览器访问时可带查询参数：
+  # ?stream=http://<esp32-ip>:81/stream  （MJPEG 流）
+  # 可选只读事件 WS：&ws=ws://<backend-host>/ws/events
+  ```
