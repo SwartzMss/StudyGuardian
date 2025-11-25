@@ -8,3 +8,7 @@ logs/
 .venv/
 venv/
 data/
+node_modules/
+frontend/node_modules/
+target/
+backend/target/

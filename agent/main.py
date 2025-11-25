@@ -83,10 +83,7 @@ def configure_logger(root: Path, config: Dict[str, Any]) -> None:
     stderr = sys.stderr
     logger.add(stderr, level=log_level)
 
-    log_file = Path(config.get("file", "logs/camera_ingest.log"))
-    if not log_file.is_absolute():
-        log_file = root / log_file
-
+    log_file = root / "logs" / "agent.log"
     log_file.parent.mkdir(parents=True, exist_ok=True)
     logger.add(str(log_file), rotation="10 MB", level=log_level)
 

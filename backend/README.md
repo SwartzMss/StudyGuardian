@@ -44,3 +44,13 @@ backend/
 - WebSocket 推送可做简单 backpressure（队列长度、掉线自动清理）。
 - 所有查询默认限速/分页，防止前端一口气扫全表拖慢树莓派。
 - 提供简单的 `make dev`：启动 Postgres（或指向外部）、跑后端、开启热重载（`cargo watch -x run`）。
+
+## 快速运行
+```bash
+cd backend
+# 可选：在环境变量中设置 DATABASE_URL（默认从 config/settings.yaml 的 storage.postgres_dsn 读取）
+cargo run         # 监听 0.0.0.0:8000
+```
+
+接口示例：
+- `GET /api/face-captures?limit=40`

@@ -1,172 +1,145 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type StreamState = "idle" | "connecting" | "playing" | "error" | "stopped";
-type WsState = "idle" | "connecting" | "connected" | "closed" | "error";
+type FaceCapture = {
+  id?: number | string;
+  identity?: string;
+  timestamp?: string;
+  frame_path?: string;
+  image?: string;
+  face_distance?: number;
+};
 
-function usePersistedInput(key: string, initial: string) {
-  const [value, setValue] = useState(() => {
-    const urlValue = new URLSearchParams(window.location.search).get("stream");
-    if (urlValue) return urlValue;
-    return localStorage.getItem(key) || initial;
-  });
-  useEffect(() => {
-    localStorage.setItem(key, value);
-  }, [key, value]);
-  return [value, setValue] as const;
+function normalizeCapture(raw: any): FaceCapture | null {
+  if (!raw || typeof raw !== "object") return null;
+  const framePath = raw.frame_path || raw.path || raw.image_url || raw.url;
+  const image = raw.image || raw.image_base64 || raw.base64;
+  const identity = raw.identity || raw.name || raw.who;
+  const timestamp = raw.timestamp || raw.time || raw.ts || new Date().toISOString();
+  const id = raw.id ?? raw.face_capture_id ?? raw.capture_id;
+  const faceDistance = raw.face_distance ?? raw.distance;
+  if (!framePath && !image && !identity) return null;
+  return {
+    id,
+    identity,
+    timestamp,
+    frame_path: framePath,
+    image,
+    face_distance: faceDistance,
+  };
 }
 
-function useWsEvents(wsParam: string | null) {
-  const [wsState, setState] = useState<WsState>("idle");
-  const [lastEvent, setLastEvent] = useState<string>("暂无");
-
-  useEffect(() => {
-    if (!wsParam) {
-      setState("idle");
-      return;
-    }
-    let cancelled = false;
-    let ws: WebSocket | null = null;
-
-    try {
-      ws = new WebSocket(wsParam);
-      setState("connecting");
-    } catch (err) {
-      setState("error");
-      console.error("WS connect error", err);
-      return;
-    }
-
-    if (!ws) return;
-
-    ws.onopen = () => !cancelled && setState("connected");
-    ws.onclose = () => !cancelled && setState("closed");
-    ws.onerror = () => !cancelled && setState("error");
-    ws.onmessage = (evt) => {
-      if (cancelled) return;
-      const text = typeof evt.data === "string" ? evt.data : "";
-      setLastEvent(text.slice(0, 200) || "收到事件");
-    };
-
-    return () => {
-      cancelled = true;
-      ws.close();
-    };
-  }, [wsParam]);
-
-  return { wsState, lastEvent };
+function resolveImageSrc(capture: FaceCapture, apiBase: string): string | null {
+  const src = capture.image || capture.frame_path;
+  if (!src) return null;
+  if (src.startsWith("data:") || src.startsWith("http")) return src;
+  if (apiBase) {
+    const prefix = apiBase.endsWith("/") ? apiBase.slice(0, -1) : apiBase;
+    const normalized = src.startsWith("/") ? src.slice(1) : src;
+    return `${prefix}/${normalized}`;
+  }
+  return src;
 }
 
-function Badge({ text, tone }: { text: string; tone?: "good" | "bad" | "info" }) {
-  const className = useMemo(() => {
-    const base = ["badge"];
-    if (tone === "good") base.push("good");
-    if (tone === "bad") base.push("bad");
-    if (tone === "info") base.push("info");
-    return base.join(" ");
-  }, [tone]);
-  return <span className={className}>{text}</span>;
+function formatTime(value?: string) {
+  if (!value) return "无时间戳";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
 export default function App() {
-  const [streamUrl, setStreamUrl] = usePersistedInput("sg_stream_url", "");
-  const [state, setState] = useState<StreamState>("idle");
-  const imgRef = useRef<HTMLImageElement | null>(null);
-  const placeholderRef = useRef<HTMLDivElement | null>(null);
+  const [captures, setCaptures] = useState<FaceCapture[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const wsParam = useMemo(() => {
-    const q = new URLSearchParams(window.location.search).get("ws");
-    return q || null;
+  const apiBase = useMemo(() => {
+    const q = new URLSearchParams(window.location.search).get("api");
+    if (!q) return "";
+    return q.endsWith("/") ? q.slice(0, -1) : q;
   }, []);
-  const { wsState, lastEvent } = useWsEvents(wsParam);
 
-  const wsTone: "info" | "good" | "bad" = wsState === "connected" ? "good" : wsState === "error" ? "bad" : "info";
+  const listUrl = apiBase ? `${apiBase}/api/face-captures?limit=40` : "/api/face-captures?limit=40";
 
   useEffect(() => {
-    const img = imgRef.current;
-    if (!img) return;
-    const onLoad = () => setState("playing");
-    const onError = () => {
-      setState("error");
-      if (placeholderRef.current) {
-        placeholderRef.current.style.display = "flex";
-        placeholderRef.current.textContent = "流加载失败，请检查地址或跨域限制";
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(listUrl);
+        if (!res.ok) {
+          throw new Error(`接口返回 ${res.status}`);
+        }
+        const text = await res.text();
+        let data: any;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`接口返回的不是 JSON，检查接口地址。响应开头: ${text.slice(0, 120)}`);
+        }
+        const items: any[] = Array.isArray(data) ? data : data?.items || data?.data || [];
+        const normalized = items
+          .map((item) => normalizeCapture(item))
+          .filter(Boolean) as FaceCapture[];
+        if (!cancelled) {
+          setCaptures(normalized);
+        }
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error(err);
+          setError(err?.message || "获取数据失败");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    };
-    img.addEventListener("load", onLoad);
-    img.addEventListener("error", onError);
-    return () => {
-      img.removeEventListener("load", onLoad);
-      img.removeEventListener("error", onError);
-    };
-  }, []);
-
-  const start = () => {
-    if (!streamUrl.trim()) {
-      alert("请先输入 MJPEG 流地址");
-      return;
     }
-    setState("connecting");
-    if (placeholderRef.current) placeholderRef.current.style.display = "none";
-    if (imgRef.current) imgRef.current.src = streamUrl.trim();
-  };
 
-  const stop = () => {
-    setState("stopped");
-    if (imgRef.current) imgRef.current.src = "";
-    if (placeholderRef.current) placeholderRef.current.style.display = "flex";
-  };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [listUrl]);
 
   return (
-    <>
-      <header className="topbar">
-        <h1>StudyGuardian Viewer</h1>
-        <Badge text={`WS: ${wsState}`} tone={wsTone} />
+    <div className="page">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">识别列表</p>
+          <h1>最新抓拍</h1>
+          <p className="muted">仅展示照片、时间和人物名称</p>
+        </div>
       </header>
 
-      <main className="layout">
-        <section className="card">
-          <div className="controls">
-            <label htmlFor="stream-input">流地址 (MJPEG/HTTP)</label>
-            <div className="control-row">
-              <input
-                id="stream-input"
-                type="text"
-                placeholder="例如 http://192.168.x.x:81/stream"
-                value={streamUrl}
-                onChange={(e) => setStreamUrl(e.target.value)}
-              />
-              <button onClick={start}>开始</button>
-              <button className="secondary" onClick={stop}>
-                停止
-              </button>
-            </div>
-          </div>
-          <div className="stream-wrap">
-            <img ref={imgRef} alt="Video stream" aria-live="polite" />
-            <div className="placeholder" ref={placeholderRef}>
-              等待开始，输入摄像头 MJPEG URL
-            </div>
-          </div>
-        </section>
+      <section className="card simple-card">
+        {error && <p className="error-text">{error}</p>}
 
-        <aside className="card">
-          <h3 className="card-title">实时状态</h3>
-          <ul className="status-list">
-            <li className="status-item">
-              <span className="label">流状态</span>
-              <Badge text={state} tone={state === "playing" ? "good" : state === "error" ? "bad" : "info"} />
-            </li>
-            <li className="status-item">
-              <span className="label">最后事件</span>
-              <span className="muted">{lastEvent}</span>
-            </li>
-            <li className="status-item">
-              <span className="label">提示</span>
-              <span className="muted">仅查看，不修改配置</span>
-            </li>
+        {loading ? (
+          <div className="placeholder tall">加载中…</div>
+        ) : captures.length === 0 ? (
+          <div className="placeholder tall">暂无数据</div>
+        ) : (
+          <ul className="capture-list">
+            {captures.map((capture) => {
+              const src = resolveImageSrc(capture, apiBase);
+              const key = capture.id ?? capture.frame_path ?? capture.timestamp ?? Math.random().toString(36);
+              return (
+                <li className="capture-row" key={key}>
+                  <div className="thumb">
+                    {src ? <img src={src} alt={capture.identity || "face"} /> : <div className="placeholder mini">无图片</div>}
+                  </div>
+                  <div className="capture-meta">
+                    <p className="identity">{capture.identity || "未知"}</p>
+                    <p className="muted small">{formatTime(capture.timestamp)}</p>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
-        </aside>
-      </main>
-    </>
+        )}
+      </section>
+    </div>
   );
 }
