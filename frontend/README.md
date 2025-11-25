@@ -52,10 +52,16 @@ frontend/
   cd frontend
   npm install
   ```
-- 开发/预览：
+- 开发/预览（dev server 监听 0.0.0.0，可用局域网 IP 访问）：
   ```bash
   npm run dev   # http://localhost:5173
   # 浏览器访问时可带查询参数：
   # ?stream=http://<esp32-ip>:81/stream  （MJPEG 流）
   # 可选只读事件 WS：&ws=ws://<backend-host>/ws/events
+  ```
+- 构建/静态发布：
+  ```bash
+  npm run build      # 输出到 dist/
+  npm run preview    # 本地预览构建产物
+  # 将 dist/ 部署到任意静态服务器，同样通过 ?stream=/?ws= 参数查看
   ```
