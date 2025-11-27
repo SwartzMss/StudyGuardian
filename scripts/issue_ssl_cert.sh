@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/issue_ssl_cert.sh [<domain>] [--wildcard]
+Usage: scripts/issue_ssl_cert.sh [<domain>] [--wildcard] [--force|--no-force]
 
 Issue an EC-256 certificate via acme.sh + DNSPod DNS-01.
 Defaults are read from config/settings.yaml > ssl.* unless overridden by CLI/env.
@@ -80,11 +80,18 @@ PY
 
 DOMAIN=""
 WILDCARD=0
+ISSUE_EXTRA_ARGS=(--force)  # default: force renew to ensure paths are written
 
 for arg in "$@"; do
   case "$arg" in
     --wildcard)
       WILDCARD=1
+      ;;
+    --force)
+      ISSUE_EXTRA_ARGS+=(--force)
+      ;;
+    --no-force)
+      ISSUE_EXTRA_ARGS=()
       ;;
     -h|--help)
       usage
@@ -169,7 +176,18 @@ else
 fi
 
 echo "Issuing certificate for: ${ISSUE_DOMAINS[*]}"
-"$ACME_SH" --issue --dns dns_dp "${ISSUE_DOMAINS[@]}" --keylength "$KEYLENGTH"
+set +e
+"$ACME_SH" --issue --dns dns_dp "${ISSUE_DOMAINS[@]}" --keylength "$KEYLENGTH" "${ISSUE_EXTRA_ARGS[@]}"
+issue_rc=$?
+set -e
+if [[ "$issue_rc" -ne 0 ]]; then
+  if [[ "$issue_rc" -eq 2 ]]; then
+    echo "info: acme.sh returned rc=2 (likely skipped/unchanged). Continuing with install." >&2
+  else
+    echo "error: acme.sh --issue failed with rc=$issue_rc" >&2
+    exit "$issue_rc"
+  fi
+fi
 
 CERT_DIR="$HOME/.acme.sh/${DOMAIN}_ecc"
 KEY_PATH="$CERT_DIR/${DOMAIN}.key"
@@ -194,6 +212,61 @@ echo "  Key:       $KEY_PATH"
 echo "  Fullchain: $CHAIN_PATH"
 
 "$ACME_SH" "${INSTALL_ARGS[@]}"
+
+if ! command -v python >/dev/null 2>&1; then
+  echo "warning: python not found; skip writing cert paths to $SETTINGS_PATH" >&2
+else
+  if SETTINGS_PATH="$SETTINGS_PATH" DOMAIN="$DOMAIN" WILDCARD="$WILDCARD" KEY_PATH="$KEY_PATH" CHAIN_PATH="$CHAIN_PATH" \
+     python - <<'PY'
+import os
+import sys
+
+try:
+    import yaml
+except Exception as exc:
+    print(f"warning: cannot import PyYAML: {exc}; skip writing cert paths", file=sys.stderr)
+    sys.exit(1)
+
+settings_path = os.environ.get("SETTINGS_PATH")
+if not settings_path:
+    print("warning: SETTINGS_PATH not set; skip writing cert paths", file=sys.stderr)
+    sys.exit(1)
+
+domain = os.environ.get("DOMAIN", "")
+wildcard_flag = os.environ.get("WILDCARD", "0")
+cert_path = os.environ.get("CHAIN_PATH", "")
+key_path = os.environ.get("KEY_PATH", "")
+
+data = {}
+if os.path.exists(settings_path):
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as exc:
+        print(f"warning: failed to load {settings_path}: {exc}", file=sys.stderr)
+
+ssl_cfg = data.get("ssl") or {}
+if domain:
+    ssl_cfg["domain"] = domain
+ssl_cfg["wildcard"] = bool(str(wildcard_flag).lower() in ("1", "true", "yes"))
+if cert_path:
+    ssl_cfg["cert_path"] = cert_path
+if key_path:
+    ssl_cfg["key_path"] = key_path
+data["ssl"] = ssl_cfg
+
+tmp_path = settings_path + ".tmp"
+with open(tmp_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+os.replace(tmp_path, settings_path)
+print(f"updated ssl.cert_path/key_path in {settings_path}")
+PY
+  then
+    :
+  else
+    echo "warning: failed to update ssl.cert_path/key_path into $SETTINGS_PATH (python/PyYAML error)" >&2
+  fi
+fi
 
 cat <<EOF
 

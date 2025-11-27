@@ -61,7 +61,12 @@ async fn main() -> Result<()> {
     let config = load_settings_multi(["config/settings.yaml", "../config/settings.yaml"]);
     let dsn = std::env::var("DATABASE_URL")
         .ok()
-        .or_else(|| config.as_ref().and_then(|c| c.storage.as_ref()).and_then(|s| s.postgres_dsn.clone()))
+        .or_else(|| {
+            config
+                .as_ref()
+                .and_then(|c| c.storage.as_ref())
+                .and_then(|s| s.postgres_dsn.clone())
+        })
         .context("DATABASE_URL 未配置，且 config/settings.yaml 未提供 storage.postgres_dsn")?;
 
     let pool = PgPoolOptions::new()
@@ -77,8 +82,17 @@ async fn main() -> Result<()> {
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
-    let addr: SocketAddr = std::env::var("BIND_ADDRESS")
-        .unwrap_or_else(|_| "0.0.0.0:8000".to_string())
+    let bind_address = std::env::var("BIND_ADDRESS")
+        .ok()
+        .or_else(|| {
+            config
+                .as_ref()
+                .and_then(|c| c.server.as_ref())
+                .and_then(|s| s.backend_bind.clone())
+        })
+        .unwrap_or_else(|| "0.0.0.0:8000".to_string());
+
+    let addr: SocketAddr = bind_address
         .parse()
         .context("无效的 BIND_ADDRESS，示例：0.0.0.0:8000")?;
 
@@ -127,8 +141,8 @@ fn init_tracing() {
         .ok()
         .unwrap_or_else(|| "info,tower_http=info".to_string());
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| log_level.into());
+    let env_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| log_level.into());
 
     let stdout_layer = fmt::layer().with_writer(std::io::stderr).boxed();
     let file_layer = build_file_writer("logs/backend.log")
@@ -145,12 +159,24 @@ fn init_tracing() {
 struct Settings {
     #[serde(default)]
     storage: Option<StorageConfig>,
+    #[serde(default)]
+    server: Option<ServerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
 struct StorageConfig {
     #[serde(default)]
     postgres_dsn: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerConfig {
+    #[serde(default)]
+    backend_bind: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    // retained for config compatibility (used by deploy/nginx, not backend runtime)
+    external_port: Option<u16>,
 }
 
 fn load_config(path: impl AsRef<Path>) -> Result<Settings> {
@@ -185,10 +211,7 @@ fn build_file_writer(path: &str) -> Option<tracing_appender::non_blocking::NonBl
         }
     }
 
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path);
+    let file = OpenOptions::new().create(true).append(true).open(path);
 
     let file = match file {
         Ok(f) => f,

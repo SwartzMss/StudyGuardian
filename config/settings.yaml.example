@@ -36,6 +36,10 @@ pir_sensor:
   gpio_pin: 23  # BCM pin number for HS-SR501 OUT
   no_face_timeout_seconds: 10
 
+server:
+  external_port: 5009  # 外部暴露端口 (Nginx 监听)
+  backend_bind: 127.0.0.1:8000  # Rust 后端内部监听地址
+
 ssl:
   domain: "example.com"          # e.g. proxy.example.com
   wildcard: false     # set true to request *.domain + root
