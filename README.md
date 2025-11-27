@@ -251,6 +251,27 @@ sudo scripts/setup_postgres.sh
 | `face_capture_id`| `INTEGER REFERENCES face_captures(id)`                                | 关联的人脸抓拍记录                      |
 | `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                           |
 
+### SSL 证书（DNS-01 + acme.sh + DNSPod）
+
+- 适用于无法开放 80/443 但希望自动签发/续期的场景；脚本仅需普通用户身份。
+- 前置：在 DNSPod 控制台创建 API ID/Token，并在运行前导出 `DP_Id`、`DP_Key`（可选 `ACME_EMAIL` 用于注册账号，`ACME_RELOAD_CMD` 用于续期后自动重载如 `systemctl reload nginx`）。
+- 生成单域名证书：
+  ```bash
+  DP_Id=xxx DP_Key=yyy scripts/issue_ssl_cert.sh proxy.example.com
+  ```
+- 生成泛域名（同时覆盖根域名）：
+  ```bash
+  DP_Id=xxx DP_Key=yyy scripts/issue_ssl_cert.sh example.com --wildcard
+  ```
+- 脚本会自动安装/升级 acme.sh，默认使用 Let's Encrypt + EC-256；证书安装到 `~/.acme.sh/<domain>_ecc/`，其中：
+  - FULLCHAIN：`~/.acme.sh/<domain>_ecc/fullchain.cer`
+  - KEY：`~/.acme.sh/<domain>_ecc/<domain>.key`
+- Nginx 示例（同一张证书可复用在同一域名的多端口进程）：
+  ```nginx
+  ssl_certificate     /home/<user>/.acme.sh/proxy.example.com_ecc/fullchain.cer;
+  ssl_certificate_key /home/<user>/.acme.sh/proxy.example.com_ecc/proxy.example.com.key;
+  ```
+
 ---
 
 ## 7. Future Work｜未来扩展
