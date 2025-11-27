@@ -95,8 +95,37 @@ if nose_y - shoulder_y > 0.12:
 
 ### 3.4 Logging & Storage｜事件记录
 
- - 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
+- 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
 - `agent/storage/postgres.py` 会把每帧识别结果入表 `posture_events`，目前仅通过 PostgreSQL 存储，便于远程分析与备份。
+
+#### PostgreSQL 表结构
+
+- `face_captures`：记录所有识别到的人员（包含 `unknown`）
+
+| 字段             | 类型                                                                 | 说明                               |
+| ---------------- | -------------------------------------------------------------------- | ---------------------------------- |
+| `id`             | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                        |
+| `identity`       | `TEXT NOT NULL`                                                       | 识别身份（如 `child/恩恩`、`unknown`） |
+| `group_tag`      | `TEXT NOT NULL`                                                       | 身份分组（child/parent/unknown 等）  |
+| `face_distance`  | `DOUBLE PRECISION`                                                    | 人脸比对距离                        |
+| `frame_path`     | `TEXT`                                                                | 保存的帧路径                        |
+| `snapshot_type`  | `TEXT`                                                                | 预留字段（enter/exit 等）           |
+| `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 捕获时间                            |
+
+- `posture_events`：仅针对受监控儿童的坐姿记录
+
+| 字段              | 类型                                                                 | 说明                                  |
+| ----------------- | -------------------------------------------------------------------- | ------------------------------------- |
+| `id`              | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                           |
+| `identity`        | `TEXT NOT NULL`                                                       | 当前识别身份（child/xxx）               |
+| `is_bad`          | `BOOLEAN NOT NULL`                                                    | 是否判定为不良坐姿                      |
+| `nose_drop`       | `DOUBLE PRECISION`                                                    | 鼻尖相对双肩垂直偏移量                  |
+| `neck_angle`      | `DOUBLE PRECISION`                                                    | 颈部与躯干的夹角                        |
+| `reasons`         | `TEXT`                                                                | 命中规则／原因文本                      |
+| `face_distance`   | `DOUBLE PRECISION`                                                    | 人脸比对距离                            |
+| `frame_path`      | `TEXT`                                                                | 坐姿截图路径（复用 face capture 图像） |
+| `face_capture_id` | `INTEGER REFERENCES face_captures(id)`                                | 关联的人脸抓拍记录                      |
+| `timestamp`       | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                           |
 
 ---
 
@@ -146,73 +175,12 @@ StudyGuardian/
 
 ---
 
-## 6. Getting Started｜运行方式
-
-1. **Install Dependencies**
-   ```bash
-   sudo apt update
-   sudo apt install python3-opencv python3-pip
-   pip install -r requirements.txt
-   ```
-2. **Configure ESP32-CAM Stream**
-   编辑 `config/settings.yaml`：
-   ```yaml
-   camera_url: "http://192.168.1.80:81/stream"
-   frame_save:
-     root: "data/captures"
-     enable: false
-     interval_seconds: 30
-   face_capture:
-     enable: true
-     root: "data/captures"
-     date_folder_format: "%Y%m%d"
-     time_format: "%H%M%S"
-     groups: []
-   face_recognition:
-     known_dir: "data/known"
-     tolerance: 0.55
-     location_model: "hog"
-   monitored_groups:
-     - "child"
-   posture:
-     nose_drop: 0.12
-     neck_angle: 45
-   storage:
-     postgres_dsn: "postgresql://guardian:study_guardian@127.0.0.1/study_guardian"  # agent 默认使用本机 loopback
-     table_name: "posture_events"
-     face_table_name: "face_captures"
-     reset_on_start: false
-   alert:
-     enable_sound: true
-   ```
-   `frame_save` 会按照 `interval_seconds` 的频率把当前帧直接写入 `root`（默认 `data/captures/`）目录，如果需要分类可以在调用 `FrameSaver.save(frame, category="xxx")` 时自行指定。
-   `capture.target_fps` 只是限制 agent 消费视频流的速率（避免 CPU 过载），不会改变摄像头真实输出的帧率；ESP32-CAM 的分辨率/FPS 仍需在设备端设置。
-   `face_capture` 会在识别到任意身份（包含 `unknown`）时保存整帧到 `data/captures/<identity>/<日期>/` 路径，并把记录写入数据库，便于事后追踪谁出现在镜头前。
-   `storage.reset_on_start` 设为 `true` 时，每次启动都会删除并重建两张事件表（`face_captures`、`posture_events`），慎用（仅适合测试环境）。
-3. **Run StudyGuardian**
-   ```bash
-python -m agent.main
-```
-
-### PIR Sensor
-
-PIR 现在直接由 `agent.main` 管理，无需额外的 `sensors` 进程。 在 `config/settings.yaml` 设置
-`pir_sensor.enable: true` 和 `pir_sensor.gpio_pin`（默认 BCM 23）即可，依赖 `gpiozero`/`lgpio`。可选：
-`pir_sensor.no_face_timeout_seconds`（默认 10 秒）用于窗口内连续无脸时自动停止采集。
-
-识别/监控规则：默认仅对识别为 `child` 分组的人做姿势分析（`monitored_groups` 不配置时自动等于 `["child"]`），
-不在监控列表或识别不到人脸（unknown）的帧会跳过姿势分析。
-
-### Convenient Start Script
-
-执行 `scripts/start_agent.sh` 会创建 `.venv` 虚拟环境、升级 `pip`、安装 `requirements.txt`，然后启动 `agent.main`。如需指定 Python 可先设置 `PYTHON_BIN` 环境变量（例如 `PYTHON_BIN=python3.11 scripts/start_agent.sh`）。脚本默认读取 `config/settings.yaml` 中的 `storage.postgres_dsn`，请先设定好 PostgreSQL 访问串；agent 在启动时会根据摄像头地址自动配置 `no_proxy`（默认包括 `localhost`、`127.0.0.1` 以及 camera_url 自身），确保本地流请求不走代理。
-
-### PostgreSQL Support
+## 6. PostgreSQL Support
 
 - 设置 `config/settings.yaml` 中 `storage.postgres_dsn`，示例 `postgresql://guard:secret@raspberrypi/guardian`。
 - 依赖 `psycopg2-binary`，启动时会自动创建 `posture_events` 表并持续写入事件，供远端查询或备份。
 
-#### PostgreSQL Installation Helper
+### PostgreSQL Installation Helper
 
 在 Raspberry Pi 5 这类 Debian/Ubuntu 衍生系统上可以直接运行 `scripts/setup_postgres.sh`（需要 `sudo` 权限）来安装 PostgreSQL、创建数据库与用户名，并打印出一条 DSN；脚本会自动切换到 `/tmp` 避免 `postgres` 用户因为访问不到仓库目录而打印 “could not change directory” 的警告：
 
@@ -222,36 +190,7 @@ sudo scripts/setup_postgres.sh
 
 脚本会默认开启 `postgresql` 服务、将 `listen_addresses` 设置为 `0.0.0.0` 并允许远程 md5 连接，这让你能够在局域网中用 GUI 工具（例如 `pgAdmin` 或 `DataGrip`）连接树莓派。尽管服务监听所有网络，agent 仍然建议在 `config/settings.yaml` 把 `storage.postgres_dsn` 设置为 `postgresql://guardian:study_guardian@127.0.0.1/study_guardian`，以便通过 loopback 访问、避免额外网络开销；如果你需要从其他机器进行查询，可以在 GUI 里使用 `raspberrypi.local` 或实际 IP + 同样的用户名/密码。 如需不同的库名、用户名或密码，可在运行前通过 `PGSETUP_DB_NAME`、`PGSETUP_DB_USER`、`PGSETUP_DB_PASS` 这几个环境变量调整。运行后将输出正确的 DSN，复制到 `config/settings.yaml > storage.postgres_dsn` 即可让 agent 成功连接数据库。
 
-**PostgreSQL 表结构**
-
-- `face_captures`：记录所有识别到的人员（包含 `unknown`）
-
-| 字段             | 类型                                                                 | 说明                               |
-| ---------------- | -------------------------------------------------------------------- | ---------------------------------- |
-| `id`             | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                        |
-| `identity`       | `TEXT NOT NULL`                                                       | 识别身份（如 `child/恩恩`、`unknown`） |
-| `group_tag`      | `TEXT NOT NULL`                                                       | 身份分组（child/parent/unknown 等）  |
-| `face_distance`  | `DOUBLE PRECISION`                                                    | 人脸比对距离                        |
-| `frame_path`     | `TEXT`                                                                | 保存的帧路径                        |
-| `snapshot_type`  | `TEXT`                                                                | 预留字段（enter/exit 等）           |
-| `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 捕获时间                            |
-
-- `posture_events`：仅针对受监控儿童的坐姿记录
-
-| 字段             | 类型                                                                 | 说明                                  |
-| ---------------- | -------------------------------------------------------------------- | ------------------------------------- |
-| `id`             | `SERIAL PRIMARY KEY`                                                  | 唯一自增标识                           |
-| `identity`       | `TEXT NOT NULL`                                                       | 当前识别身份（child/xxx）               |
-| `is_bad`         | `BOOLEAN NOT NULL`                                                    | 是否判定为不良坐姿                      |
-| `nose_drop`      | `DOUBLE PRECISION`                                                    | 鼻尖相对双肩垂直偏移量                  |
-| `neck_angle`     | `DOUBLE PRECISION`                                                    | 颈部与躯干的夹角                        |
-| `reasons`        | `TEXT`                                                                | 命中规则／原因文本                      |
-| `face_distance`  | `DOUBLE PRECISION`                                                    | 人脸比对距离                            |
-| `frame_path`     | `TEXT`                                                                | 坐姿截图路径（复用 face capture 图像） |
-| `face_capture_id`| `INTEGER REFERENCES face_captures(id)`                                | 关联的人脸抓拍记录                      |
-| `timestamp`      | `TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`                 | 事件发生时间                           |
-
-### SSL 证书（DNS-01 + acme.sh + DNSPod）
+## 7. SSL 证书（DNS-01 + acme.sh + DNSPod）
 
 - 适用于无法开放 80/443 但希望自动签发/续期的场景；脚本仅需普通用户身份。
 - 前置：在 DNSPod 控制台创建 API ID/Token，并在运行前导出 `DP_Id`、`DP_Key`（可选 `ACME_EMAIL` 用于注册账号，`ACME_RELOAD_CMD` 用于续期后自动重载如 `systemctl reload nginx`）。
@@ -273,8 +212,7 @@ sudo scripts/setup_postgres.sh
   ```
 
 ---
-
-## 7. Future Work｜未来扩展
+## 8. Future Work｜未来扩展
 
 - 多摄像头融合（正面 + 侧面）。
 - 脊柱侧弯监测、学习时长统计与专注度测量。
