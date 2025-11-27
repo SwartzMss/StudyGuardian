@@ -194,6 +194,7 @@ sudo scripts/setup_postgres.sh
 
 - 适用于无法开放 80/443 但希望自动签发/续期的场景；脚本仅需普通用户身份。
 - 前置：在 DNSPod 控制台创建 API ID/Token，并在运行前导出 `DP_Id`、`DP_Key`（可选 `ACME_EMAIL` 用于注册账号，`ACME_RELOAD_CMD` 用于续期后自动重载如 `systemctl reload nginx`）。
+- 也可在 `config/settings.yaml > ssl` 写入 `domain`、`wildcard`、`dp_id`、`dp_key`、`acme_email`、`acme_server`、`reload_cmd`，脚本会自动读取；CLI 参数 / 环境变量优先生效。
 - 生成单域名证书：
   ```bash
   DP_Id=xxx DP_Key=yyy scripts/issue_ssl_cert.sh proxy.example.com
