@@ -1,0 +1,46 @@
+camera_url: http://YOUR_CAMERA_HOST:PORT/stream
+logging:
+  level: INFO
+capture:
+  # 每秒处理的帧数（人脸 + 姿势检测），调低可降低 CPU/网络负载
+  target_fps: 5
+  reconnect_delay: 5
+  max_retries: 5
+face_recognition:
+  known_dir: data/known
+  tolerance: 0.55
+  location_model: hog
+face_capture:
+  enable: true
+  root: data/captures
+  date_folder_format: '%Y%m%d'
+  time_format: '%H%M%S'
+  groups: []  # 空列表表示不按分组过滤，填写 ["child"] 仅保存孩子
+posture:
+  nose_drop: -0.0521
+  neck_angle: 163.19
+storage:
+  postgres_dsn: postgresql://USER:PASSWORD@HOST/DATABASE
+  table_name: posture_events
+  face_table_name: face_captures
+  reset_on_start: false
+posture_metadata:
+  calibrated_at: '2025-11-22T23:58:14.079668Z'
+  samples: 30
+  nose_margin: 0.03
+  angle_margin: 5.0
+  avg_drop: -0.0821
+  avg_angle: 158.19
+pir_sensor:
+  enable: true
+  gpio_pin: 23  # BCM pin number for HS-SR501 OUT
+  no_face_timeout_seconds: 10
+
+ssl:
+  domain: "example.com"          # e.g. proxy.example.com
+  wildcard: false     # set true to request *.domain + root
+  dp_id: "DNSPOD_ID"           # DNSPod API ID
+  dp_key: "DNSPOD_TOKEN"          # DNSPod API Token (keep this file private)
+  acme_email: "you@example.com"      # optional: Let's Encrypt account email
+  acme_server: "letsencrypt"
+  reload_cmd: ""      # optional: e.g. systemctl reload nginx
