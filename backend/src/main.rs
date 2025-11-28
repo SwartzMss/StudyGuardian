@@ -300,9 +300,7 @@ fn load_settings_multi<const N: usize>(candidates: [&str; N]) -> Option<Settings
 }
 
 fn capture_root(settings: Option<&Settings>) -> Option<PathBuf> {
-    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)?;
+    let repo_root = repo_root();
     let raw = settings?
         .face_capture
         .as_ref()
@@ -335,8 +333,15 @@ fn sanitize_capture_path(root: &Path, candidate: &Path) -> Result<PathBuf> {
     Ok(full)
 }
 
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(Path::to_path_buf)
+        .expect("repo root")
+}
+
 fn build_file_writer(path: &str) -> Option<tracing_appender::non_blocking::NonBlocking> {
-    let path = Path::new(path);
+    let path = repo_root().join(path);
     if let Some(parent) = path.parent() {
         if let Err(err) = std::fs::create_dir_all(parent) {
             eprintln!("创建日志目录失败（{}）: {}", parent.display(), err);
@@ -344,7 +349,7 @@ fn build_file_writer(path: &str) -> Option<tracing_appender::non_blocking::NonBl
         }
     }
 
-    let file = OpenOptions::new().create(true).append(true).open(path);
+    let file = OpenOptions::new().create(true).append(true).open(&path);
 
     let file = match file {
         Ok(f) => f,
