@@ -8,8 +8,8 @@ capture:
   max_retries: 5
 face_recognition:
   known_dir: data/known
-  tolerance: 0.55
-  location_model: hog
+  tolerance: 0.6
+  location_model: cnn
 face_capture:
   enable: true
   root: data/captures
@@ -24,6 +24,10 @@ storage:
   table_name: posture_events
   face_table_name: face_captures
   reset_on_start: false
+face_capture_retention:
+  max_rows: 20000        # 最多保留条数；设为 null 关闭  单张 142 KB 20,000 张 ≈ 2 × 1.35 GB ≈ 2.7 GB
+  max_age_days: 30       # 最多保留天数；设为 null 关闭
+  interval_seconds: 600  # 检查间隔
 posture_metadata:
   calibrated_at: '2025-11-22T23:58:14.079668Z'
   samples: 30

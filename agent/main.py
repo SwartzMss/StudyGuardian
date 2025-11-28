@@ -27,7 +27,11 @@ from agent.capture import (
 )
 from agent.posture import PostureConfig, PostureService
 from agent.recognition import FaceMatch, FaceService
-from agent.storage import Storage, StorageConfig
+from agent.storage import (
+    Storage,
+    StorageConfig,
+    FaceCaptureRetentionWorker,
+)
 from agent.sensors import PIRSensor, build_pir_sensor
 
 
@@ -401,6 +405,19 @@ def main() -> None:
     face_service = build_face_service(root, settings.get("face_recognition", {}))
     posture_service = build_posture_service(posture_cfg)
     storage = build_storage(settings.get("storage", {}))
+    retention_worker: Optional[FaceCaptureRetentionWorker] = None
+    retention_cfg = settings.get("face_capture_retention", {}) or {}
+    if retention_cfg:
+        max_rows = retention_cfg.get("max_rows")
+        max_age_days = retention_cfg.get("max_age_days")
+        interval = float(retention_cfg.get("interval_seconds", 600))
+        retention_worker = FaceCaptureRetentionWorker(
+            storage=storage,
+            max_rows=int(max_rows) if max_rows is not None else None,
+            max_age_days=float(max_age_days) if max_age_days is not None else None,
+            interval_seconds=interval,
+        )
+        retention_worker.start()
     monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
     face_capture_cfg = settings.get("face_capture")
     default_identities: Optional[Set[str]] = None
@@ -471,6 +488,8 @@ def main() -> None:
     finally:
         storage.close()
         posture_service.close()
+        if retention_worker:
+            retention_worker.stop()
         if pir_sensor:
             pir_sensor.close()
 

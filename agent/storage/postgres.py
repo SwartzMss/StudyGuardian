@@ -35,11 +35,47 @@ class Storage:
             self.reset()
         self._ensure_tables()
 
+    def prune_face_captures(
+        self,
+        max_rows: int | None = None,
+        max_age_days: float | None = None,
+    ) -> int:
+        """Delete old face captures by age or keep-most-recent row count."""
+        cursor = self._conn.cursor()
+        deleted = 0
+
+        if max_age_days is not None:
+            cursor.execute(
+                f"DELETE FROM {self._face_table} "
+                "WHERE timestamp < (NOW() - (%s || ' days')::interval)",
+                (max_age_days,),
+            )
+            deleted += cursor.rowcount
+
+        if max_rows is not None and max_rows > 0:
+            cursor.execute(f"SELECT COUNT(*) FROM {self._face_table}")
+            count = cursor.fetchone()[0] or 0
+            if count > max_rows:
+                to_delete = count - max_rows
+                cursor.execute(
+                    f"DELETE FROM {self._face_table} "
+                    "WHERE id IN ("
+                    "  SELECT id FROM {table} ORDER BY timestamp ASC LIMIT %s"
+                    ")".format(table=self._face_table),
+                    (to_delete,),
+                )
+                deleted += cursor.rowcount
+
+        self._conn.commit()
+        cursor.close()
+        return deleted
+
     def _ensure_tables(self) -> None:
         cursor = self._conn.cursor()
         cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
         cursor.execute(self._create_face_table_sql())
         cursor.execute(self._create_posture_table_sql())
+        self._ensure_posture_fk_cascade(cursor)
         cursor.close()
         self._conn.commit()
 
@@ -143,7 +179,53 @@ CREATE TABLE IF NOT EXISTS {self._posture_table} (
   reasons TEXT,
   face_distance DOUBLE PRECISION,
   frame_path TEXT,
-  face_capture_id UUID REFERENCES {self._face_table}(id) ON DELETE SET NULL,
+  face_capture_id UUID,
   timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 """
+
+    def _ensure_posture_fk_cascade(self, cursor) -> None:
+        """Ensure posture table FK cascades when face capture rows are deleted."""
+        posture_table = self._posture_table
+        face_table = self._face_table
+
+        cursor.execute(
+            """
+            SELECT
+              tc.constraint_name,
+              rc.delete_rule
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu
+              ON tc.constraint_name = kcu.constraint_name
+             AND tc.table_schema = kcu.table_schema
+            JOIN information_schema.referential_constraints rc
+              ON rc.constraint_name = tc.constraint_name
+             AND rc.constraint_schema = tc.table_schema
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+              AND tc.table_name = %s
+              AND kcu.column_name = 'face_capture_id';
+            """,
+            (posture_table,),
+        )
+        row = cursor.fetchone()
+        constraint_name = row[0] if row else None
+        delete_rule = row[1] if row else None
+
+        needs_update = constraint_name is None or delete_rule != "CASCADE"
+        if not needs_update:
+            return
+
+        if constraint_name:
+            cursor.execute(
+                f'ALTER TABLE {posture_table} DROP CONSTRAINT "{constraint_name}";'
+            )
+
+        cursor.execute(
+            f"""
+            ALTER TABLE {posture_table}
+            ADD CONSTRAINT fk_posture_face_capture
+            FOREIGN KEY (face_capture_id)
+            REFERENCES {face_table}(id)
+            ON DELETE CASCADE;
+            """
+        )
