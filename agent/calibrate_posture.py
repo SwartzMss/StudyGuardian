@@ -1,7 +1,7 @@
 """Calibrate posture thresholds based on a short capture session.
 
 Usage:
-    python agent/calibrate_posture.py --samples 30 --nose-margin 0.03 --angle-margin 5
+    python -m agent.calibrate_posture --samples 30 --nose-margin 0.03 --angle-margin 5
 """
 
 from __future__ import annotations
@@ -10,17 +10,11 @@ import argparse
 import datetime as dt
 from pathlib import Path
 from typing import Any, Dict, List
-import sys
 
 import cv2
 import mediapipe as mp
 import yaml
 from loguru import logger
-
-# Ensure project root is importable when running as a script
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
 
 from agent.capture import CameraStream
 from agent.main import build_posture_service, ensure_no_proxy, load_settings
@@ -30,16 +24,41 @@ _DRAWING_STYLES = mp.solutions.drawing_styles
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Calibrate posture thresholds and update settings.yaml")
-    parser.add_argument("--settings", type=Path, default=Path("config/settings.yaml"), help="Path to settings.yaml")
-    parser.add_argument("--samples", type=int, default=30, help="Target number of valid samples")
-    parser.add_argument(
-        "--max-frames", type=int, default=None, help="Optional frame cap (defaults to samples * 2 if omitted)"
+    parser = argparse.ArgumentParser(
+        description="Calibrate posture thresholds and update settings.yaml"
     )
-    parser.add_argument("--nose-margin", type=float, default=0.03, help="Extra margin added to avg nose_drop")
-    parser.add_argument("--angle-margin", type=float, default=5.0, help="Extra margin added to avg neck_angle")
     parser.add_argument(
-        "--save-dir", type=Path, default=Path("data/calibration"), help="Directory to save annotated snapshots"
+        "--settings",
+        type=Path,
+        default=Path("config/settings.yaml"),
+        help="Path to settings.yaml",
+    )
+    parser.add_argument(
+        "--samples", type=int, default=30, help="Target number of valid samples"
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=None,
+        help="Optional frame cap (defaults to samples * 2 if omitted)",
+    )
+    parser.add_argument(
+        "--nose-margin",
+        type=float,
+        default=0.03,
+        help="Extra margin added to avg nose_drop",
+    )
+    parser.add_argument(
+        "--angle-margin",
+        type=float,
+        default=5.0,
+        help="Extra margin added to avg neck_angle",
+    )
+    parser.add_argument(
+        "--save-dir",
+        type=Path,
+        default=Path("data/calibration"),
+        help="Directory to save annotated snapshots",
     )
     return parser.parse_args()
 
@@ -108,7 +127,9 @@ def main() -> None:
     posture_cfg = settings.get("posture", {}) or {}
     # Fallback thresholds during calibration to avoid NoneType casting errors.
     if posture_cfg.get("nose_drop") is None:
-        posture_cfg["nose_drop"] = 1.0  # permissive placeholder; real value will be overwritten
+        posture_cfg["nose_drop"] = (
+            1.0  # permissive placeholder; real value will be overwritten
+        )
     if posture_cfg.get("neck_angle") is None:
         posture_cfg["neck_angle"] = 180.0
     save_dir = args.save_dir if args.save_dir.is_absolute() else (root / args.save_dir)
@@ -125,11 +146,15 @@ def main() -> None:
     )
 
     posture_service = build_posture_service(posture_cfg)
-    drops, angles = _collect_samples(camera_url, capture_cfg, target_samples, max_frames, posture_service, save_dir)
+    drops, angles = _collect_samples(
+        camera_url, capture_cfg, target_samples, max_frames, posture_service, save_dir
+    )
     posture_service.close()
 
     if not drops:
-        raise RuntimeError("No valid posture samples collected; ensure subject is in frame with shoulders visible")
+        raise RuntimeError(
+            "No valid posture samples collected; ensure subject is in frame with shoulders visible"
+        )
 
     avg_drop = sum(drops) / len(drops)
     avg_angle = sum(angles) / len(angles)

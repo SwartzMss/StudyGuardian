@@ -20,6 +20,8 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
 
 from agent.capture import (
     CameraStream,
+    FrameSaveConfig,
+    FrameSaver,
     IdentityCapture,
     IdentityCaptureConfig,
 )
@@ -63,7 +65,10 @@ class MotionGate:
         with self._lock:
             if not self._active:
                 return False, None
-            if self._last_face_ts > 0 and (now - self._last_face_ts) > self._idle_timeout:
+            if (
+                self._last_face_ts > 0
+                and (now - self._last_face_ts) > self._idle_timeout
+            ):
                 self._active = False
                 return False, f"no faces for {now - self._last_face_ts:.1f}s"
             return True, None
@@ -174,7 +179,9 @@ def _ensure_string_set(values: Any) -> Optional[Set[str]]:
     return parsed or None
 
 
-def _merge_sets(primary: Optional[Set[str]], secondary: Optional[Set[str]]) -> Optional[Set[str]]:
+def _merge_sets(
+    primary: Optional[Set[str]], secondary: Optional[Set[str]]
+) -> Optional[Set[str]]:
     if not secondary:
         return primary
     if not primary:
@@ -182,7 +189,9 @@ def _merge_sets(primary: Optional[Set[str]], secondary: Optional[Set[str]]) -> O
     return set(primary).union(secondary)
 
 
-def _parse_monitoring_filters(settings: Dict[str, Any]) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
+def _parse_monitoring_filters(
+    settings: Dict[str, Any],
+) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
     monitored_identities = _ensure_string_set(settings.get("monitored_identities"))
     monitored_groups = _ensure_string_set(settings.get("monitored_groups"))
     monitoring_block = settings.get("monitoring") or {}
@@ -222,7 +231,11 @@ def make_frame_handler(
         if had_faces:
             for match in matches:
                 identity_key = match.identity or "unknown"
-                group = identity_key.split("/", 1)[0] if "/" in identity_key else identity_key or "unknown"
+                group = (
+                    identity_key.split("/", 1)[0]
+                    if "/" in identity_key
+                    else identity_key or "unknown"
+                )
                 snapshot_path: Optional[str] = None
                 if identity_capture is not None:
                     saved = identity_capture.save(identity_key, frame)
@@ -251,14 +264,19 @@ def make_frame_handler(
 
         should_analyze = True
         if monitored_identities or monitored_groups:
-            identity_match = monitored_identities is not None and identity in monitored_identities
+            identity_match = (
+                monitored_identities is not None and identity in monitored_identities
+            )
             group_match = False
             if monitored_groups and identity not in ("", "unknown"):
                 identity_group = identity.split("/", 1)[0]
                 group_match = identity_group in monitored_groups
             should_analyze = identity_match or group_match
         if not should_analyze:
-            logger.debug("Skipping posture analysis for {}; identity not in monitored list", identity)
+            logger.debug(
+                "Skipping posture analysis for {}; identity not in monitored list",
+                identity,
+            )
             return True
 
         posture = posture_service.analyze(frame)
@@ -390,7 +408,9 @@ def main() -> None:
         face_capture_cfg = settings.get("unknown_capture", {})
         default_identities = {"unknown"}
     face_capture_cfg = face_capture_cfg or {}
-    identity_capture = build_identity_capture(root, face_capture_cfg, default_identities=default_identities)
+    identity_capture = build_identity_capture(
+        root, face_capture_cfg, default_identities=default_identities
+    )
 
     capture_cfg = settings.get("capture", {})
     ensure_no_proxy(settings.get("camera_url"))
@@ -436,7 +456,9 @@ def main() -> None:
                 try:
                     motion_event.wait()
                 except KeyboardInterrupt:
-                    logger.info("Interrupted while waiting for PIR motion, shutting down")
+                    logger.info(
+                        "Interrupted while waiting for PIR motion, shutting down"
+                    )
                     break
                 motion_event.clear()
             _iterate_stream()

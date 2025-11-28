@@ -19,7 +19,9 @@ class Storage:
         try:
             import psycopg2  # type: ignore[import]
         except ImportError as exc:  # pragma: no cover - runtime helper
-            raise RuntimeError("psycopg2-binary is required for PostgreSQL storage") from exc
+            raise RuntimeError(
+                "psycopg2-binary is required for PostgreSQL storage"
+            ) from exc
 
         if not config.postgres_dsn:
             raise ValueError("PostgreSQL DSN must be provided")
@@ -58,15 +60,6 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
         frame_path: str | None = None,
         face_capture_id: int | None = None,
     ) -> None:
-        payload = (
-            identity,
-            is_bad,
-            nose_drop,
-            neck_angle,
-            ", ".join(reasons),
-            face_distance,
-            frame_path,
-        )
         columns = [
             "identity",
             "is_bad",

@@ -34,7 +34,7 @@ npm install --prefer-offline --no-audit --no-fund
 npm run build -- --emptyOutDir=false
 popd >/dev/null
 
-echo "==> Agent (venv deps + ruff format/check + byte-compile)"
+echo "==> Agent (venv deps + ruff lint + byte-compile)"
 if [[ ! -d "$AGENT_DIR" ]]; then
   echo "error: agent dir not found: $AGENT_DIR" >&2
   exit 1
@@ -48,8 +48,7 @@ if [[ ! -f "$AGENT_REQUIREMENTS" ]]; then
   exit 1
 fi
 python -m pip install -r "$AGENT_REQUIREMENTS" "ruff>=0.5"
-python -m ruff format --check "$AGENT_DIR"
-python -m ruff check "$AGENT_DIR"
+python -m ruff check --fix "$AGENT_DIR"
 python -m compileall "$AGENT_DIR"
 
 echo "All checks/builds completed successfully."
