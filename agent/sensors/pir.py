@@ -26,7 +26,9 @@ class PIRConfig:
 class PIRSensor:
     """Manage a PIR sensor lifecycle and callbacks."""
 
-    def __init__(self, config: PIRConfig, on_motion: Optional[MotionCallback] = None) -> None:
+    def __init__(
+        self, config: PIRConfig, on_motion: Optional[MotionCallback] = None
+    ) -> None:
         if MotionSensor is None:
             raise ImportError("gpiozero is required for PIR support") from _import_error  # type: ignore[name-defined]
 
@@ -34,7 +36,11 @@ class PIRSensor:
         self._on_motion = on_motion
         self._sensor = MotionSensor(config.gpio_pin)
 
-        logger.info("PIR warming up for {:.1f}s on BCM {}", config.settle_seconds, config.gpio_pin)
+        logger.info(
+            "PIR warming up for {:.1f}s on BCM {}",
+            config.settle_seconds,
+            config.gpio_pin,
+        )
         if config.settle_seconds > 0:
             import time
 
@@ -61,7 +67,9 @@ class PIRSensor:
             pass
 
 
-def build_pir_sensor(config: dict, on_motion: Optional[MotionCallback] = None) -> Optional[PIRSensor]:
+def build_pir_sensor(
+    config: dict, on_motion: Optional[MotionCallback] = None
+) -> Optional[PIRSensor]:
     """Return an initialized PIR sensor (or None if disabled/misconfigured)."""
     if not config or not config.get("enable", False):
         return None

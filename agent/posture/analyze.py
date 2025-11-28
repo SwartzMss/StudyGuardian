@@ -34,7 +34,9 @@ class PostureService:
     def __init__(self, config: PostureConfig) -> None:
         self._config = config
         self._mp_pose = mp.solutions.pose
-        self._pose = self._mp_pose.Pose(min_detection_confidence=0.4, min_tracking_confidence=0.4)
+        self._pose = self._mp_pose.Pose(
+            min_detection_confidence=0.4, min_tracking_confidence=0.4
+        )
 
     def set_thresholds(self, nose_drop: float, neck_angle: float) -> None:
         """Update posture thresholds (useful after calibration)."""
@@ -45,9 +47,10 @@ class PostureService:
         assessment, _ = self.analyze_with_landmarks(frame)
         return assessment
 
-    def analyze_with_landmarks(
-        self, frame: "np.ndarray"
-    ) -> tuple[Optional[PostureAssessment], Optional[mp.framework.formats.landmark_pb2.NormalizedLandmarkList]]:
+    def analyze_with_landmarks(self, frame: "np.ndarray") -> tuple[
+        Optional[PostureAssessment],
+        Optional[mp.framework.formats.landmark_pb2.NormalizedLandmarkList],
+    ]:
         if frame is None:
             return None, None
 
@@ -88,10 +91,14 @@ class PostureService:
             reasons.append("neck extended")
 
         bad = bool(reasons)
-        return PostureAssessment(bad=bad, nose_drop=nose_drop, neck_angle=neck_angle, reasons=reasons)
+        return PostureAssessment(
+            bad=bad, nose_drop=nose_drop, neck_angle=neck_angle, reasons=reasons
+        )
 
     @staticmethod
-    def _average_point(points: Sequence[landmark_pb2.NormalizedLandmark]) -> landmark_pb2.NormalizedLandmark:
+    def _average_point(
+        points: Sequence[landmark_pb2.NormalizedLandmark],
+    ) -> landmark_pb2.NormalizedLandmark:
         x = sum(point.x for point in points) / len(points)
         y = sum(point.y for point in points) / len(points)
         z = sum(point.z for point in points) / len(points)

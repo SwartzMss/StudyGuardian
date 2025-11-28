@@ -159,8 +159,12 @@ class CameraStream:
         while not self._capture.isOpened():
             attempt += 1
             if attempt > self._max_retries:
-                raise RuntimeError(f"Unable to open stream after {self._max_retries} attempts")
-            logger.warning("Stream not available, retrying in {}s", self._reconnect_delay)
+                raise RuntimeError(
+                    f"Unable to open stream after {self._max_retries} attempts"
+                )
+            logger.warning(
+                "Stream not available, retrying in {}s", self._reconnect_delay
+            )
             time.sleep(self._reconnect_delay)
             self._capture.open(self._source)
 
@@ -192,7 +196,9 @@ class CameraStream:
         """Start consuming the stream and handing frames to a callback."""
 
         frames = 0
-        frame_interval = 1.0 / self._target_fps if self._target_fps and self._target_fps > 0 else 0
+        frame_interval = (
+            1.0 / self._target_fps if self._target_fps and self._target_fps > 0 else 0
+        )
         last_time = time.time()
 
         with self:

@@ -76,7 +76,9 @@ class FaceService:
     ) -> "FaceService":
         base_dir = base_dir.resolve()
         if not base_dir.exists():
-            logger.warning("Known face directory {} does not exist, no identities loaded", base_dir)
+            logger.warning(
+                "Known face directory {} does not exist, no identities loaded", base_dir
+            )
             return cls([], [], tolerance)
 
         encodings: List[np.ndarray] = []
@@ -95,13 +97,20 @@ class FaceService:
                 encodings.append(faces[0])
                 labels.append(identity)
                 per_identity_counts[identity] += 1
-                logger.info("Loaded {} ({}) with hash {}", identity, image_path.name, _hash_path(image_path))
+                logger.info(
+                    "Loaded {} ({}) with hash {}",
+                    identity,
+                    image_path.name,
+                    _hash_path(image_path),
+                )
 
         if not encodings:
             logger.warning("No known faces loaded from {}", base_dir)
         else:
             for identity, count in per_identity_counts.items():
-                logger.info("Loaded {} reference image(s) for identity {}", count, identity)
+                logger.info(
+                    "Loaded {} reference image(s) for identity {}", count, identity
+                )
 
         return cls(encodings, labels, tolerance, location_model)
 
@@ -122,7 +131,11 @@ class FaceService:
             distances = face_recognition.face_distance(self._encodings, encoding)
             best_idx = int(np.argmin(distances))
             best_distance = float(distances[best_idx])
-            identity = self._labels[best_idx] if best_distance <= self._tolerance else "unknown"
+            identity = (
+                self._labels[best_idx]
+                if best_distance <= self._tolerance
+                else "unknown"
+            )
             matches.append(FaceMatch(identity, best_distance, location))
 
         return matches
