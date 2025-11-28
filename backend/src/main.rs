@@ -177,17 +177,24 @@ async fn get_face_capture_image(
     AxumPath(id): AxumPath<Uuid>,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
-    let capture_root = state
-        .capture_root
-        .clone()
-        .ok_or_else(|| ApiError(anyhow::anyhow!("capture root not configured"), StatusCode::INTERNAL_SERVER_ERROR))?;
+    let capture_root = state.capture_root.clone().ok_or_else(|| {
+        ApiError(
+            anyhow::anyhow!("capture root not configured"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
 
     let row = sqlx::query(r#"SELECT frame_path FROM face_captures WHERE id = $1"#)
         .bind(id)
         .fetch_optional(&state.pool)
         .await
         .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?
-        .ok_or_else(|| ApiError(anyhow::anyhow!("face capture not found"), StatusCode::NOT_FOUND))?;
+        .ok_or_else(|| {
+            ApiError(
+                anyhow::anyhow!("face capture not found"),
+                StatusCode::NOT_FOUND,
+            )
+        })?;
 
     let frame_path: Option<String> = row.try_get("frame_path").map_err(|err| {
         ApiError(
