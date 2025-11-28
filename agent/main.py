@@ -227,7 +227,7 @@ def make_frame_handler(
         had_faces = bool(matches)
         identity = "unknown"
         distance: Optional[float] = None
-        capture_records: dict[str, Tuple[int | None, Optional[str]]] = {}
+        capture_records: dict[str, Tuple[str | None, Optional[str]]] = {}
         if had_faces:
             for match in matches:
                 identity_key = match.identity or "unknown"

@@ -37,15 +37,9 @@ class Storage:
 
     def _ensure_tables(self) -> None:
         cursor = self._conn.cursor()
+        cursor.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
         cursor.execute(self._create_face_table_sql())
         cursor.execute(self._create_posture_table_sql())
-        cursor.execute(
-            f"""
-ALTER TABLE {self._posture_table}
-ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
-    REFERENCES {self._face_table}(id) ON DELETE SET NULL
-"""
-        )
         cursor.close()
         self._conn.commit()
 
@@ -58,7 +52,7 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
         reasons: List[str],
         face_distance: float | None = None,
         frame_path: str | None = None,
-        face_capture_id: int | None = None,
+        face_capture_id: str | None = None,
     ) -> None:
         columns = [
             "identity",
@@ -98,7 +92,7 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
         group_tag: str,
         face_distance: float | None,
         frame_path: str | None,
-    ) -> int:
+    ) -> str:
         columns = ["identity", "group_tag", "face_distance", "frame_path"]
         placeholders = ", ".join([self._param] * len(columns))
         query = (
@@ -110,7 +104,7 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
         face_id = cursor.fetchone()[0]
         cursor.close()
         self._conn.commit()
-        return int(face_id)
+        return str(face_id)
 
     def reset(self) -> None:
         self._drop_table(self._posture_table)
@@ -129,19 +123,19 @@ ADD COLUMN IF NOT EXISTS face_capture_id INTEGER
     def _create_face_table_sql(self) -> str:
         return f"""
 CREATE TABLE IF NOT EXISTS {self._face_table} (
-  id SERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   identity TEXT NOT NULL,
   group_tag TEXT NOT NULL,
   face_distance DOUBLE PRECISION,
   frame_path TEXT,
-  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 """
 
     def _create_posture_table_sql(self) -> str:
         return f"""
 CREATE TABLE IF NOT EXISTS {self._posture_table} (
-  id SERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   identity TEXT NOT NULL,
   is_bad BOOLEAN NOT NULL,
   nose_drop DOUBLE PRECISION,
@@ -149,7 +143,7 @@ CREATE TABLE IF NOT EXISTS {self._posture_table} (
   reasons TEXT,
   face_distance DOUBLE PRECISION,
   frame_path TEXT,
-  face_capture_id INTEGER REFERENCES {self._face_table}(id) ON DELETE SET NULL,
-  timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+  face_capture_id UUID REFERENCES {self._face_table}(id) ON DELETE SET NULL,
+  timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 """
