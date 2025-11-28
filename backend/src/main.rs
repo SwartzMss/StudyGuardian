@@ -13,7 +13,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, FromRow, Pool, Postgres, Row};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -40,7 +40,7 @@ struct FaceCaptureRow {
     group_tag: String,
     frame_path: Option<String>,
     face_distance: Option<f64>,
-    timestamp: DateTime<Utc>,
+    timestamp: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,7 +49,7 @@ struct FaceCapture {
     identity: String,
     group_tag: String,
     face_distance: Option<f64>,
-    timestamp: DateTime<Utc>,
+    timestamp: NaiveDateTime,
     image_url: Option<String>,
 }
 
