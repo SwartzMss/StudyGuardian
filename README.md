@@ -175,7 +175,40 @@ StudyGuardian/
 
 ---
 
-## 6. PostgreSQL Support
+## 6. Install & Deploy｜安装与部署速览
+
+### 6.1 准备依赖
+- 系统：Debian/Ubuntu（Raspberry Pi OS OK）
+- 依赖：`python3`、`cargo`、`npm`、`systemd`、`nginx`、PostgreSQL
+- 配置：复制 `config/settings.yaml.example` 为 `config/settings.yaml` 并填好 `storage.postgres_dsn`、`camera_url`、SSL 等
+
+### 6.2 一键构建
+```bash
+scripts/build.sh
+```
+作用：格式化 + 编译 Rust backend、前端打包、创建 `.venv` 并安装 agent 依赖、ruff 检查与 byte-compile。
+
+### 6.3 部署/启动（含 systemd + nginx）
+```bash
+sudo scripts/deploy.sh install   # 首次安装：写入 systemd、同步前端静态、配置 nginx、启动服务
+sudo scripts/deploy.sh restart   # 重新构建并重启
+sudo scripts/deploy.sh status    # 查看服务状态
+```
+默认服务：
+- `studyguardian-agent.service`：Python agent（使用 `.venv/bin/python -m agent.main`）
+- `studyguardian-backend.service`：Rust 后端（`backend/target/release/studyguardian-backend`）
+
+静态资源默认同步到 `/var/www/studyguardian`，nginx 监听 `server.external_port`（默认 443）。需要 root 权限。
+
+### 6.4 仅启动 Agent（调试）
+```bash
+scripts/start_agent.sh
+```
+作用：创建/复用 `.venv`、安装依赖后前台运行 `python -m agent.main`。
+
+---
+
+## 7. PostgreSQL Support
 
 - 设置 `config/settings.yaml` 中 `storage.postgres_dsn`，示例 `postgresql://guard:secret@raspberrypi/guardian`。
 - 依赖 `psycopg2-binary`，启动时会自动创建 `posture_events` 表并持续写入事件，供远端查询或备份。

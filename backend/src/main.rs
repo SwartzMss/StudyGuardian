@@ -133,6 +133,7 @@ async fn list_face_captures(
     Query(params): Query<ListParams>,
 ) -> Result<Json<Vec<FaceCapture>>, ApiError> {
     let limit = params.limit.unwrap_or(40).clamp(1, 200);
+    tracing::info!("GET /api/face-captures?limit={}", limit);
     let rows = sqlx::query_as::<_, FaceCaptureRow>(
         r#"
         SELECT
@@ -177,6 +178,7 @@ async fn get_face_capture_image(
     AxumPath(id): AxumPath<Uuid>,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
+    tracing::info!("GET /api/face-captures/{}/image", id);
     let capture_root = state.capture_root.clone().ok_or_else(|| {
         ApiError(
             anyhow::anyhow!("capture root not configured"),

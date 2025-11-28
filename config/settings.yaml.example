@@ -9,7 +9,7 @@ capture:
 face_recognition:
   known_dir: data/known
   tolerance: 0.6
-  location_model: cnn
+  location_model: hog
 face_capture:
   enable: true
   root: data/captures
