@@ -20,4 +20,4 @@ pip install --upgrade pip
 pip install -r "$ROOT_DIR/requirements.txt"
 
 cd "$ROOT_DIR"
-python agent/calibrate_posture.py "$@"
+PYTHONPATH="$ROOT_DIR:${PYTHONPATH:-}" python -m agent.calibrate_posture "$@"

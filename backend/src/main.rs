@@ -53,6 +53,41 @@ struct FaceCapture {
     image_url: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct PostureListParams {
+    limit: Option<i64>,
+    is_bad: Option<bool>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+struct PostureRow {
+    id: Uuid,
+    identity: String,
+    is_bad: bool,
+    nose_drop: Option<f64>,
+    neck_angle: Option<f64>,
+    reasons: Option<String>,
+    face_distance: Option<f64>,
+    frame_path: Option<String>,
+    face_capture_id: Option<Uuid>,
+    timestamp: DateTime<FixedOffset>,
+}
+
+#[derive(Debug, Serialize)]
+struct PostureEvent {
+    id: Uuid,
+    identity: String,
+    is_bad: bool,
+    nose_drop: Option<f64>,
+    neck_angle: Option<f64>,
+    reasons: Vec<String>,
+    face_distance: Option<f64>,
+    frame_path: Option<String>,
+    face_capture_id: Option<Uuid>,
+    timestamp: DateTime<FixedOffset>,
+    image_url: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 struct ApiErrorBody {
     message: String,
@@ -98,6 +133,11 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/api/face-captures", get(list_face_captures))
         .route("/api/face-captures/:id/image", get(get_face_capture_image))
+        .route("/api/posture-events", get(list_posture_events))
+        .route(
+            "/api/posture-events/:id/image",
+            get(get_posture_event_image),
+        )
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
@@ -208,6 +248,152 @@ async fn get_face_capture_image(
     let frame_path = frame_path.ok_or_else(|| {
         ApiError(
             anyhow::anyhow!("face capture has no associated frame path"),
+            StatusCode::NOT_FOUND,
+        )
+    })?;
+
+    let target_path = sanitize_capture_path(&capture_root, Path::new(&frame_path))
+        .map_err(|err| ApiError(err, StatusCode::BAD_REQUEST))?;
+
+    let data = tokio::fs::read(&target_path)
+        .await
+        .map_err(|err| ApiError(err.into(), StatusCode::NOT_FOUND))?;
+
+    let content_type = mime_guess::from_path(&target_path)
+        .first_or_octet_stream()
+        .to_string();
+
+    Ok(([(axum::http::header::CONTENT_TYPE, content_type)], data).into_response())
+}
+
+async fn list_posture_events(
+    State(state): State<AppState>,
+    Query(params): Query<PostureListParams>,
+) -> Result<Json<Vec<PostureEvent>>, ApiError> {
+    let limit = params.limit.unwrap_or(50).clamp(1, 200);
+    let is_bad = params.is_bad;
+    tracing::info!(
+        "GET /api/posture-events?limit={}&is_bad={:?}",
+        limit,
+        is_bad
+    );
+
+    let query = if is_bad.is_some() {
+        r#"
+        SELECT
+            id,
+            identity,
+            is_bad,
+            nose_drop,
+            neck_angle,
+            reasons,
+            face_distance,
+            frame_path,
+            face_capture_id,
+            timestamp
+        FROM posture_events
+        WHERE is_bad = $2
+        ORDER BY timestamp DESC
+        LIMIT $1
+        "#
+    } else {
+        r#"
+        SELECT
+            id,
+            identity,
+            is_bad,
+            nose_drop,
+            neck_angle,
+            reasons,
+            face_distance,
+            frame_path,
+            face_capture_id,
+            timestamp
+        FROM posture_events
+        ORDER BY timestamp DESC
+        LIMIT $1
+        "#
+    };
+
+    let rows: Vec<PostureRow> = if let Some(flag) = is_bad {
+        sqlx::query_as(query).bind(limit).bind(flag)
+    } else {
+        sqlx::query_as(query).bind(limit)
+    }
+    .fetch_all(&state.pool)
+    .await
+    .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    let data = rows
+        .into_iter()
+        .map(|row| {
+            let reasons = row
+                .reasons
+                .as_ref()
+                .map(|r| {
+                    r.split(',')
+                        .map(|part| part.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let image_url = row
+                .frame_path
+                .as_ref()
+                .map(|_| format!("/api/posture-events/{}/image", row.id));
+            PostureEvent {
+                id: row.id,
+                identity: row.identity,
+                is_bad: row.is_bad,
+                nose_drop: row.nose_drop,
+                neck_angle: row.neck_angle,
+                reasons,
+                face_distance: row.face_distance,
+                frame_path: row.frame_path,
+                face_capture_id: row.face_capture_id,
+                timestamp: row.timestamp,
+                image_url,
+            }
+        })
+        .collect();
+
+    Ok(Json(data))
+}
+
+async fn get_posture_event_image(
+    AxumPath(id): AxumPath<Uuid>,
+    State(state): State<AppState>,
+) -> Result<Response, ApiError> {
+    tracing::info!("GET /api/posture-events/{}/image", id);
+    let capture_root = state.capture_root.clone().ok_or_else(|| {
+        ApiError(
+            anyhow::anyhow!("capture root not configured"),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
+
+    let row = sqlx::query(r#"SELECT frame_path FROM posture_events WHERE id = $1"#)
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?
+        .ok_or_else(|| {
+            ApiError(
+                anyhow::anyhow!("posture event not found"),
+                StatusCode::NOT_FOUND,
+            )
+        })?;
+
+    let frame_path: Option<String> = row.try_get("frame_path").map_err(|err| {
+        ApiError(
+            anyhow::anyhow!("invalid frame_path data: {}", err),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )
+    })?;
+
+    let frame_path = frame_path.ok_or_else(|| {
+        ApiError(
+            anyhow::anyhow!("posture event has no associated frame path"),
             StatusCode::NOT_FOUND,
         )
     })?;

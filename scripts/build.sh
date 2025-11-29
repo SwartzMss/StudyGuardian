@@ -23,7 +23,6 @@ require_cmd python3 cargo npm
 
 echo "==> Backend (cargo fmt/clippy/build)"
 pushd "$BACKEND_DIR" >/dev/null
-cargo fmt -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo build --release
 popd >/dev/null

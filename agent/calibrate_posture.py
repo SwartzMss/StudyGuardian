@@ -11,6 +11,7 @@ import datetime as dt
 from pathlib import Path
 from typing import Any, Dict, List
 
+import shutil
 import cv2
 import mediapipe as mp
 import yaml
@@ -59,6 +60,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("data/calibration"),
         help="Directory to save annotated snapshots",
+    )
+    parser.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help="Keep existing calibration images instead of cleaning the folder first",
     )
     return parser.parse_args()
 
@@ -133,6 +139,7 @@ def main() -> None:
     if posture_cfg.get("neck_angle") is None:
         posture_cfg["neck_angle"] = 180.0
     save_dir = args.save_dir if args.save_dir.is_absolute() else (root / args.save_dir)
+    _prepare_save_dir(save_dir, clean=not args.keep_existing)
 
     target_samples = args.samples
     max_frames = args.max_frames or target_samples * 2
@@ -218,6 +225,24 @@ def _save_snapshot(
     filename = f"calibration_{sample_idx:03d}.jpg"
     path = save_dir / filename
     cv2.imwrite(str(path), annotated)
+
+
+def _prepare_save_dir(save_dir: Path, clean: bool) -> None:
+    save_dir.mkdir(parents=True, exist_ok=True)
+    if not clean:
+        return
+    removed = 0
+    for item in save_dir.iterdir():
+        try:
+            if item.is_file() or item.is_symlink():
+                item.unlink()
+            else:
+                shutil.rmtree(item)
+            removed += 1
+        except Exception:
+            logger.warning("Failed to remove old calibration artifact: {}", item)
+    if removed:
+        logger.info("Cleared {} existing item(s) from {}", removed, save_dir)
 
 
 if __name__ == "__main__":
