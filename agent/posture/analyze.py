@@ -87,8 +87,6 @@ class PostureService:
         reasons: List[str] = []
         if nose_drop > self._config.nose_drop:
             reasons.append("head lowered")
-        if neck_angle > self._config.neck_angle:
-            reasons.append("neck extended")
 
         bad = bool(reasons)
         return PostureAssessment(
