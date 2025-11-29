@@ -82,7 +82,9 @@ struct PostureEvent {
     neck_angle: Option<f64>,
     reasons: Vec<String>,
     face_distance: Option<f64>,
+    #[serde(skip_serializing)]
     frame_path: Option<String>,
+    #[serde(skip_serializing)]
     face_capture_id: Option<Uuid>,
     timestamp: DateTime<FixedOffset>,
     image_url: Option<String>,
