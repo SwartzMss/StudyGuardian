@@ -9,6 +9,7 @@ import time
 from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set, Tuple
+import shutil
 
 import cv2
 import yaml
@@ -32,7 +33,7 @@ from agent.storage import (
     StorageConfig,
     FaceCaptureRetentionWorker,
 )
-from agent.sensors import PIRSensor, build_pir_sensor
+from agent.sensors import Buzzer, PIRSensor, build_buzzer, build_pir_sensor
 
 
 class MotionGate:
@@ -114,6 +115,33 @@ def build_frame_saver(root: Path, config: Dict[str, Any]) -> Optional[FrameSaver
         default_category=default_category,
     )
     return FrameSaver(frame_config)
+
+
+def reset_capture_directory(root: Path, settings: Dict[str, Any]) -> None:
+    storage_cfg = settings.get("storage") or {}
+    if not storage_cfg.get("reset_on_start"):
+        return
+
+    capture_cfg = settings.get("face_capture") or settings.get("unknown_capture") or {}
+    capture_root = capture_cfg.get("root", "data/captures")
+    capture_path = (root / capture_root).resolve()
+    is_within_project = capture_path == root or root in capture_path.parents
+    if not is_within_project:
+        logger.warning(
+            "reset_on_start set but capture path is outside project, skipping: {}",
+            capture_path,
+        )
+        return
+
+    if capture_path.exists():
+        try:
+            shutil.rmtree(capture_path)
+            logger.info(
+                "reset_on_start enabled; removed capture directory {}",
+                capture_path,
+            )
+        except Exception as exc:  # pragma: no cover - filesystem/runtime concerns
+            logger.warning("Failed to remove capture directory {}: {}", capture_path, exc)
 
 
 def build_identity_capture(
@@ -218,8 +246,15 @@ def make_frame_handler(
     monitored_groups: Optional[Set[str]] = None,
     identity_capture: Optional[IdentityCapture] = None,
     motion_gate: Optional[MotionGate] = None,
+    buzzer: Optional[Buzzer] = None,
+    buzzer_beep_count: int = 2,
+    buzzer_beep_interval: float = 0.4,
+    buzzer_min_gap_seconds: float = 5.0,
 ) -> Callable[[cv2.Mat], bool]:
+    last_beep_ts = 0.0
+
     def handler(frame: "cv2.Mat") -> bool:
+        nonlocal last_beep_ts
         if motion_gate is not None:
             active, reason = motion_gate.should_process()
             if not active:
@@ -315,6 +350,15 @@ def make_frame_handler(
                 frame_path=capture_path,
                 face_capture_id=face_capture_id,
             )
+            if posture.bad and buzzer is not None:
+                now = time.monotonic()
+                if (now - last_beep_ts) >= buzzer_min_gap_seconds:
+                    try:
+                        buzzer.beep_times(buzzer_beep_count, interval=buzzer_beep_interval)
+                    except Exception as exc:  # pragma: no cover - hardware/runtime concerns
+                        logger.warning("Buzzer failed to beep: {}", exc)
+                    finally:
+                        last_beep_ts = now
         else:
             logger.debug("Posture not available for {}", identity)
 
@@ -366,6 +410,13 @@ def main() -> None:
 
     configure_logger(root, settings.get("logging", {}))
     logger.info("Starting StudyGuardian camera ingest")
+    reset_capture_directory(root, settings)
+
+    buzzer: Optional[Buzzer] = None
+    buzzer_cfg = settings.get("buzzer") or {}
+    buzzer_beep_count = int(buzzer_cfg.get("beep_count", 2))
+    buzzer_beep_interval = float(buzzer_cfg.get("beep_interval_seconds", 0.4))
+    buzzer_min_gap_seconds = float(buzzer_cfg.get("min_gap_seconds", 5.0))
 
     pir_sensor: Optional[PIRSensor] = None
     pir_cfg = settings.get("pir_sensor") or {}
@@ -387,13 +438,20 @@ def main() -> None:
     try:
         motion_gate = MotionGate(idle_timeout_seconds)
         pir_sensor = build_pir_sensor(pir_cfg, on_motion=_on_motion)
+        buzzer = build_buzzer(buzzer_cfg)
         if pir_sensor:
             logger.info(
                 "PIR sensor enabled (no_face_timeout_seconds={:.0f})",
                 idle_timeout_seconds,
             )
+        if buzzer:
+            logger.info(
+                "Buzzer ready (beep_count={}, min_gap={:.1f}s)",
+                buzzer_beep_count,
+                buzzer_min_gap_seconds,
+            )
     except Exception as exc:  # pragma: no cover - hardware/runtime concerns
-        logger.warning("PIR sensor failed to start: {}", exc)
+        logger.warning("Sensor initialization failed: {}", exc)
 
     posture_cfg = settings.get("posture", {}) or {}
     if posture_cfg.get("nose_drop") is None or posture_cfg.get("neck_angle") is None:
@@ -457,6 +515,10 @@ def main() -> None:
                     monitored_groups=monitored_groups,
                     identity_capture=identity_capture,
                     motion_gate=motion_gate if pir_sensor else None,
+                    buzzer=buzzer,
+                    buzzer_beep_count=buzzer_beep_count,
+                    buzzer_beep_interval=buzzer_beep_interval,
+                    buzzer_min_gap_seconds=buzzer_min_gap_seconds,
                 )
             )
         except Exception as exc:  # pragma: no cover - runtime concerns
@@ -492,6 +554,8 @@ def main() -> None:
             retention_worker.stop()
         if pir_sensor:
             pir_sensor.close()
+        if buzzer:
+            buzzer.close()
 
 
 if __name__ == "__main__":
