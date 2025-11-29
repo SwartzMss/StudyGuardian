@@ -337,10 +337,15 @@ async fn list_posture_events(
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            // Prefer the linked face capture image when available; otherwise fall back to posture image.
             let image_url = row
-                .frame_path
-                .as_ref()
-                .map(|_| format!("/api/posture-events/{}/image", row.id));
+                .face_capture_id
+                .map(|face_id| format!("/api/face-captures/{}/image", face_id))
+                .or_else(|| {
+                    row.frame_path
+                        .as_ref()
+                        .map(|_| format!("/api/posture-events/{}/image", row.id))
+                });
             PostureEvent {
                 id: row.id,
                 identity: row.identity,
