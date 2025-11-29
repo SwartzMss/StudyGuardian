@@ -291,10 +291,8 @@ export default function App() {
                 <thead>
                   <tr>
                     <th>截图</th>
-                    <th>身份</th>
                     <th>时间</th>
                     <th>原因</th>
-                    <th>指标</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -309,16 +307,8 @@ export default function App() {
                             {src ? <img src={src} alt="posture" /> : <div className="placeholder mini">无图</div>}
                           </div>
                         </td>
-                        <td className="identity-cell">
-                          <span className="identity">{displayIdentity(event.identity)}</span>
-                          {event.is_bad && <span className="chip danger">异常</span>}
-                        </td>
                         <td className="muted small">{formatTime(event.timestamp)}</td>
                         <td className="posture-reasons">{reasons}</td>
-                        <td className="posture-metrics">
-                          <span>下降: {formatNumber(event.nose_drop, 3)}</span>
-                          <span>颈角: {formatNumber(event.neck_angle, 1)}°</span>
-                        </td>
                       </tr>
                     );
                   })}

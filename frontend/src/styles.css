@@ -248,7 +248,7 @@ body {
 
 .posture-thumb {
   width: 100%;
-  height: 90px;
+  height: 120px;
   overflow: hidden;
   border-radius: 10px;
   background: #0d1d2a;
@@ -329,25 +329,22 @@ body {
 }
 
 .posture-thumb.mini {
-  width: 110px;
-  height: 70px;
-}
-
-.identity-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  width: 180px;
+  height: 120px;
 }
 
 .posture-table .posture-reasons {
   color: #e5e7ff;
   font-size: 14px;
+  line-height: 1.3;
 }
 
 .posture-table .posture-metrics {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 @media (max-width: 720px) {
