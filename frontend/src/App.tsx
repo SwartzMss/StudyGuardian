@@ -47,6 +47,12 @@ function formatTime(value?: string) {
   return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
 }
 
+function displayIdentity(identity?: string | null) {
+  if (!identity) return "未知";
+  const parts = identity.split("/");
+  return parts[parts.length - 1] || "未知";
+}
+
 export default function App() {
   const [captures, setCaptures] = useState<FaceCapture[]>([]);
   const [loading, setLoading] = useState(true);
@@ -128,16 +134,14 @@ export default function App() {
             {captures.map((capture) => {
               const src = resolveImageSrc(capture, apiBase);
               const key = capture.id ?? capture.frame_path ?? capture.timestamp ?? Math.random().toString(36);
+              const identity = displayIdentity(capture.identity);
               return (
                 <article className="capture-card" key={key}>
                   <div className="thumb">
                     {src ? <img src={src} alt={capture.identity || "face"} /> : <div className="placeholder mini">无图片</div>}
-                    <div className="tag">{capture.identity || "未知"}</div>
-                    <div className="time-chip">{formatTime(capture.timestamp)}</div>
-                    {capture.face_distance != null && <div className="distance-chip">相似度 {Math.max(0, Math.min(1, 1 - capture.face_distance)).toFixed(2)}</div>}
                   </div>
                   <div className="capture-meta">
-                    <p className="identity">{capture.identity || "未知"}</p>
+                    <p className="identity">{identity}</p>
                     <p className="muted small">{formatTime(capture.timestamp)}</p>
                   </div>
                 </article>
