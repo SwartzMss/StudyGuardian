@@ -106,10 +106,13 @@ export default function App() {
   return (
     <div className="page">
       <header className="hero">
-        <div>
-          <p className="eyebrow">识别列表</p>
-          <h1>最新抓拍</h1>
-          <p className="muted">仅展示照片、时间和人物名称</p>
+        <p className="eyebrow">Face Watch · 实时抓拍</p>
+        <div className="hero-row">
+          <div>
+            <h1>抓拍墙</h1>
+            <p className="muted">快速浏览最新画面，一眼锁定重点时刻</p>
+          </div>
+          <div className="pill">{captures.length} 条记录</div>
         </div>
       </header>
 
@@ -121,23 +124,26 @@ export default function App() {
         ) : captures.length === 0 ? (
           <div className="placeholder tall">暂无数据</div>
         ) : (
-          <ul className="capture-list">
+          <div className="capture-grid">
             {captures.map((capture) => {
               const src = resolveImageSrc(capture, apiBase);
               const key = capture.id ?? capture.frame_path ?? capture.timestamp ?? Math.random().toString(36);
               return (
-                <li className="capture-row" key={key}>
+                <article className="capture-card" key={key}>
                   <div className="thumb">
                     {src ? <img src={src} alt={capture.identity || "face"} /> : <div className="placeholder mini">无图片</div>}
+                    <div className="tag">{capture.identity || "未知"}</div>
+                    <div className="time-chip">{formatTime(capture.timestamp)}</div>
+                    {capture.face_distance != null && <div className="distance-chip">相似度 {Math.max(0, Math.min(1, 1 - capture.face_distance)).toFixed(2)}</div>}
                   </div>
                   <div className="capture-meta">
                     <p className="identity">{capture.identity || "未知"}</p>
                     <p className="muted small">{formatTime(capture.timestamp)}</p>
                   </div>
-                </li>
+                </article>
               );
             })}
-          </ul>
+          </div>
         )}
       </section>
     </div>
