@@ -88,7 +88,7 @@ class PostureService:
         if nose_drop > self._config.nose_drop:
             reasons.append("head lowered")
         if self._config.neck_angle is not None and neck_angle > self._config.neck_angle:
-            reasons.append("neck extended")
+            reasons.append("颈部前伸")
 
         bad = bool(reasons)
         return PostureAssessment(
