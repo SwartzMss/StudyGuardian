@@ -13,7 +13,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::NaiveDateTime;
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, FromRow, Pool, Postgres, Row};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -40,7 +40,7 @@ struct FaceCaptureRow {
     group_tag: String,
     frame_path: Option<String>,
     face_distance: Option<f64>,
-    timestamp: NaiveDateTime,
+    timestamp: DateTime<FixedOffset>,
 }
 
 #[derive(Debug, Serialize)]
@@ -49,7 +49,7 @@ struct FaceCapture {
     identity: String,
     group_tag: String,
     face_distance: Option<f64>,
-    timestamp: NaiveDateTime,
+    timestamp: DateTime<FixedOffset>,
     image_url: Option<String>,
 }
 
@@ -142,7 +142,7 @@ async fn list_face_captures(
             group_tag,
             frame_path,
             face_distance,
-            (timestamp AT TIME ZONE 'UTC') as timestamp
+            timestamp
         FROM face_captures
         ORDER BY timestamp DESC
         LIMIT $1
