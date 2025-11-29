@@ -86,7 +86,7 @@ class PostureService:
 
         reasons: List[str] = []
         if nose_drop > self._config.nose_drop:
-            reasons.append("head lowered")
+            reasons.append("头部下沉")
         if self._config.neck_angle is not None and neck_angle > self._config.neck_angle:
             reasons.append("颈部前伸")
 
