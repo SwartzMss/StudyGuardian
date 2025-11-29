@@ -182,9 +182,11 @@ def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
 
 
 def build_posture_service(config: Dict[str, Any]) -> PostureService:
+    neck_raw = config.get("neck_angle")
+    neck_angle = float(neck_raw) if neck_raw is not None else None
     posture_config = PostureConfig(
         nose_drop=float(config.get("nose_drop")),
-        neck_angle=float(config.get("neck_angle")),
+        neck_angle=neck_angle,
     )
     return PostureService(posture_config)
 
@@ -454,10 +456,10 @@ def main() -> None:
         logger.warning("Sensor initialization failed: {}", exc)
 
     posture_cfg = settings.get("posture", {}) or {}
-    if posture_cfg.get("nose_drop") is None or posture_cfg.get("neck_angle") is None:
+    if posture_cfg.get("nose_drop") is None:
         raise RuntimeError(
             "Posture thresholds not configured. Run `python scripts/calibrate_posture.py` "
-            "to set posture.nose_drop and posture.neck_angle in config/settings.yaml"
+            "to set posture.nose_drop in config/settings.yaml (neck_angle 可设为 null 禁用颈部检测)"
         )
 
     face_service = build_face_service(root, settings.get("face_recognition", {}))

@@ -17,7 +17,7 @@ from mediapipe.framework.formats import landmark_pb2
 @dataclass
 class PostureConfig:
     nose_drop: float = 0.12
-    neck_angle: float = 45.0
+    neck_angle: Optional[float] = 45.0
 
 
 @dataclass
@@ -87,6 +87,8 @@ class PostureService:
         reasons: List[str] = []
         if nose_drop > self._config.nose_drop:
             reasons.append("head lowered")
+        if self._config.neck_angle is not None and neck_angle > self._config.neck_angle:
+            reasons.append("neck extended")
 
         bad = bool(reasons)
         return PostureAssessment(

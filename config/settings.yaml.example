@@ -18,7 +18,7 @@ face_capture:
   groups: []  # 空列表表示不按分组过滤，填写 ["child"] 仅保存孩子
 posture:
   nose_drop: -0.0521
-  neck_angle: 163.19  # 颈部前伸检测暂时停用，如需启用需恢复代码里的 neck 判断
+  neck_angle: 163.19  # 设为 null 可禁用颈部前伸检测
 storage:
   postgres_dsn: postgresql://USER:PASSWORD@HOST/DATABASE
   table_name: posture_events
