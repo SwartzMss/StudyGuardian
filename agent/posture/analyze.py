@@ -18,6 +18,7 @@ from mediapipe.framework.formats import landmark_pb2
 class PostureConfig:
     nose_drop: float = 0.12
     neck_angle: Optional[float] = 45.0
+    visibility_threshold: Optional[float] = 0.5
 
 
 @dataclass
@@ -78,6 +79,18 @@ class PostureService:
         left_hip = lm[self._mp_pose.PoseLandmark.LEFT_HIP]
         right_hip = lm[self._mp_pose.PoseLandmark.RIGHT_HIP]
 
+        visibility_threshold = self._config.visibility_threshold
+        if visibility_threshold is not None:
+            if not all(
+                self._is_confident(part, visibility_threshold)
+                for part in (nose, left_shoulder, right_shoulder, left_hip, right_hip)
+            ):
+                logger.debug(
+                    "Landmarks below visibility threshold {:.2f}, skipping posture frame",
+                    visibility_threshold,
+                )
+                return None
+
         shoulder_center = self._average_point((left_shoulder, right_shoulder))
         hip_center = self._average_point((left_hip, right_hip))
 
@@ -118,6 +131,17 @@ class PostureService:
             return 0.0
         cos_angle = max(min(dot / denom, 1.0), -1.0)
         return math.degrees(math.acos(cos_angle))
+
+    @staticmethod
+    def _is_confident(lm: landmark_pb2.NormalizedLandmark, threshold: float) -> bool:
+        scores = [
+            score
+            for score in (getattr(lm, "visibility", None), getattr(lm, "presence", None))
+            if score is not None
+        ]
+        if not scores:
+            return True
+        return all(score >= threshold for score in scores)
 
     def close(self) -> None:
         self._pose.close()

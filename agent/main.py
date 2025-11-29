@@ -184,9 +184,12 @@ def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
 def build_posture_service(config: Dict[str, Any]) -> PostureService:
     neck_raw = config.get("neck_angle")
     neck_angle = float(neck_raw) if neck_raw is not None else None
+    vis_raw = config.get("visibility_threshold")
+    visibility_threshold = float(vis_raw) if vis_raw is not None else None
     posture_config = PostureConfig(
         nose_drop=float(config.get("nose_drop")),
         neck_angle=neck_angle,
+        visibility_threshold=visibility_threshold,
     )
     return PostureService(posture_config)
 

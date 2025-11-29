@@ -19,6 +19,7 @@ face_capture:
 posture:
   nose_drop: -0.0521
   neck_angle: 163.19  # 设为 null 可禁用颈部前伸检测
+  visibility_threshold: 0.5  # 降低可见度阈值会放宽检测，设为 null 可关闭可见度过滤
 storage:
   postgres_dsn: postgresql://USER:PASSWORD@HOST/DATABASE
   table_name: posture_events
