@@ -64,22 +64,30 @@ class FaceService:
         labels: Sequence[str],
         tolerance: float = 0.55,
         location_model: str = "hog",
+        min_face_area_ratio: float | None = None,
     ) -> None:
         self._encodings = list(encodings)
         self._labels = list(labels)
         self._tolerance = tolerance
         self._location_model = location_model
+        self._min_face_area_ratio = (
+            min_face_area_ratio if min_face_area_ratio and min_face_area_ratio > 0 else None
+        )
 
     @classmethod
     def from_known_directory(
-        cls, base_dir: Path, tolerance: float = 0.55, location_model: str = "hog"
+        cls,
+        base_dir: Path,
+        tolerance: float = 0.55,
+        location_model: str = "hog",
+        min_face_area_ratio: float | None = None,
     ) -> "FaceService":
         base_dir = base_dir.resolve()
         if not base_dir.exists():
             logger.warning(
                 "Known face directory {} does not exist, no identities loaded", base_dir
             )
-            return cls([], [], tolerance)
+            return cls([], [], tolerance, location_model, min_face_area_ratio)
 
         encodings: List[np.ndarray] = []
         labels: List[str] = []
@@ -112,18 +120,32 @@ class FaceService:
                     "Loaded {} reference image(s) for identity {}", count, identity
                 )
 
-        return cls(encodings, labels, tolerance, location_model)
+        return cls(encodings, labels, tolerance, location_model, min_face_area_ratio)
 
     def recognize(self, frame: "np.ndarray") -> List[FaceMatch]:
         if frame is None:
             return []
 
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_area = float(rgb.shape[0] * rgb.shape[1]) if rgb.size else None
         locations = face_recognition.face_locations(rgb, model=self._location_model)
         encodings = face_recognition.face_encodings(rgb, locations)
         matches: List[FaceMatch] = []
 
         for location, encoding in zip(locations, encodings):
+            if frame_area and self._min_face_area_ratio is not None:
+                top, right, bottom, left = location
+                width = max(right - left, 0)
+                height = max(bottom - top, 0)
+                area_ratio = (width * height) / frame_area if frame_area > 0 else 0.0
+                if area_ratio < self._min_face_area_ratio:
+                    logger.debug(
+                        "Ignoring tiny face candidate (area ratio {:.4f} < {:.4f})",
+                        area_ratio,
+                        self._min_face_area_ratio,
+                    )
+                    continue
+
             if not self._encodings:
                 matches.append(FaceMatch("unknown", 1.0, location))
                 continue

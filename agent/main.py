@@ -175,8 +175,17 @@ def build_face_service(root: Path, config: Dict[str, Any]) -> FaceService:
     known_dir = Path(config.get("known_dir", "data/known"))
     tolerance = float(config.get("tolerance", 0.55))
     location_model = config.get("location_model", "hog")
+    min_face_area_ratio_raw = config.get("min_face_area_ratio")
+    min_face_area_ratio = (
+        float(min_face_area_ratio_raw)
+        if min_face_area_ratio_raw is not None
+        else None
+    )
     service = FaceService.from_known_directory(
-        root / known_dir, tolerance=tolerance, location_model=location_model
+        root / known_dir,
+        tolerance=tolerance,
+        location_model=location_model,
+        min_face_area_ratio=min_face_area_ratio,
     )
     return service
 
