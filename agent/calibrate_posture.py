@@ -17,7 +17,7 @@ import mediapipe as mp
 import yaml
 from loguru import logger
 
-from agent.capture import CameraStream
+from agent.capture import CameraStream, ensure_camera_settings
 from agent.main import build_posture_service, ensure_no_proxy, load_settings
 
 _DRAWING_UTILS = mp.solutions.drawing_utils
@@ -82,6 +82,7 @@ def _collect_samples(
 
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    ensure_camera_settings(camera_url)
     stream = CameraStream(
         source=camera_url,
         target_fps=float(capture_cfg.get("target_fps", 15)),

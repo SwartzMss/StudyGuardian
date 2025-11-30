@@ -2,6 +2,7 @@
 
 from .ingest import (
     CameraStream,
+    ensure_camera_settings,
     FrameSaveConfig,
     FrameSaver,
     IdentityCapture,
@@ -10,6 +11,7 @@ from .ingest import (
 
 __all__ = [
     "CameraStream",
+    "ensure_camera_settings",
     "FrameSaveConfig",
     "FrameSaver",
     "IdentityCapture",

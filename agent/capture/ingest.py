@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Set
+from urllib.parse import urlparse
+from urllib.request import urlopen
 
 import cv2
 from loguru import logger
@@ -123,6 +126,94 @@ class IdentityCapture:
                 return True
 
         return False
+
+
+def ensure_camera_settings(
+    camera_url: str,
+    required_vflip: int = 0,
+    required_framesize: Optional[int] = 12,
+    timeout: float = 3.0,
+) -> None:
+    """Fetch camera /status and enforce required settings before opening stream."""
+    if not camera_url:
+        logger.warning("Camera URL not provided; skip status check")
+        return
+
+    parsed = urlparse(camera_url)
+    host = parsed.hostname
+    scheme = parsed.scheme or "http"
+    if not host:
+        logger.warning("Unable to parse camera host from {}", camera_url)
+        return
+
+    base_urls = [f"{scheme}://{host}"]
+    if parsed.port:
+        base_with_port = f"{scheme}://{host}:{parsed.port}"
+        if base_with_port not in base_urls:
+            base_urls.append(base_with_port)
+
+    status: Optional[dict] = None
+    base_url_used = None
+    for base_url in base_urls:
+        status_url = f"{base_url}/status"
+        try:
+            with urlopen(status_url, timeout=timeout) as resp:
+                body = resp.read()
+            status = json.loads(body.decode("utf-8"))
+            base_url_used = base_url
+            break
+        except Exception as exc:  # pragma: no cover - hardware/network concerns
+            logger.warning("Skipping camera status check at {}: {}", status_url, exc)
+            continue
+
+    if status is None or base_url_used is None:
+        return
+
+    vflip = status.get("vflip")
+    if vflip is None:
+        logger.warning(
+            "Camera status missing vflip field at {}",
+            f"{base_url_used}/status",
+        )
+    elif vflip != required_vflip:
+        control_url = f"{base_url_used}/control?var=vflip&val={required_vflip}"
+        try:
+            urlopen(control_url, timeout=timeout)
+            logger.info("Set camera vflip to {} via {}", required_vflip, control_url)
+        except Exception as exc:  # pragma: no cover - hardware/network concerns
+            logger.warning(
+                "Failed to set camera vflip to {} via {}: {}",
+                required_vflip,
+                control_url,
+                exc,
+            )
+
+    if required_framesize is None:
+        return
+
+    framesize = status.get("framesize")
+    if framesize is None:
+        logger.warning(
+            "Camera status missing framesize field at {}",
+            f"{base_url_used}/status",
+        )
+        return
+    if framesize == required_framesize:
+        return
+
+    control_url = f"{base_url_used}/control?var=framesize&val={required_framesize}"
+    try:
+        urlopen(control_url, timeout=timeout)
+        logger.info(
+            "Set camera framesize to {} via {}", required_framesize, control_url
+        )
+    except Exception as exc:  # pragma: no cover - hardware/network concerns
+        logger.warning(
+            "Failed to set camera framesize to {} via {}: {}",
+            required_framesize,
+            control_url,
+            exc,
+        )
 
 
 class CameraStream:

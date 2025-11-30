@@ -21,6 +21,7 @@ os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "1")
 
 from agent.capture import (
     CameraStream,
+    ensure_camera_settings,
     FrameSaveConfig,
     FrameSaver,
     IdentityCapture,
@@ -512,6 +513,7 @@ def main() -> None:
     )
 
     def _iterate_stream() -> None:
+        ensure_camera_settings(settings.get("camera_url", ""))
         stream = CameraStream(
             source=settings.get("camera_url", ""),
             target_fps=float(capture_cfg.get("target_fps", 15)),
