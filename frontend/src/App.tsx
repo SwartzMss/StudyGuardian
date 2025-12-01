@@ -161,7 +161,6 @@ export default function App() {
   const [logoutReason, setLogoutReason] = useState<string | null>(null);
   const [captures, setCaptures] = useState<FaceCapture[]>([]);
   const [postures, setPostures] = useState<PostureEvent[]>([]);
-  const [activeTab, setActiveTab] = useState<"captures" | "postures">("captures");
   const [loading, setLoading] = useState(true);
   const [postureLoading, setPostureLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,8 +175,6 @@ export default function App() {
   const loginUrl = apiBase ? `${apiBase}/api/login` : "/api/login";
   const listUrl = apiBase ? `${apiBase}/api/face-captures?limit=40` : "/api/face-captures?limit=40";
   const postureUrl = apiBase ? `${apiBase}/api/posture-events?is_bad=true&limit=50` : "/api/posture-events?is_bad=true&limit=50";
-  const remainingMinutes = session ? Math.max(1, Math.round((session.expiresAt * 1000 - Date.now()) / 60000)) : 0;
-  const expiresAtText = session ? new Date(session.expiresAt * 1000).toLocaleTimeString() : "";
 
   useEffect(() => {
     if (!session) {
@@ -343,10 +340,9 @@ export default function App() {
       <div className="login-page">
         <div className="login-card">
           <p className="eyebrow">Study Guardian</p>
-          <h1>登录监控面板</h1>
-          <p className="muted">
-            请输入用户名和密码。后端会生成短期 JWT，会话过期后需要重新登录。
-          </p>
+          <div className="login-visual">
+            <img className="login-illustration" src="/mascot.svg" alt="Study Guardian mascot" />
+          </div>
           {logoutReason && <div className="session-note">{logoutReason}</div>}
           {authError && <div className="session-note error">{authError}</div>}
           <form className="login-form" onSubmit={handleLogin}>
@@ -382,46 +378,29 @@ export default function App() {
 
   return (
     <div className="page">
-      <div className="session-bar">
-        <div>
-          <p className="muted small">已登录</p>
-          <p className="identity">{session.username}</p>
-        </div>
-        <div className="session-meta">
-          <p className="muted small">会话剩余约 {remainingMinutes} 分钟（到 {expiresAtText} 过期）</p>
+      <header className="hero">
+        <div className="hero-header">
+          <p className="eyebrow">Study Guardian · 学习桌守护</p>
           <button className="ghost-btn" onClick={() => handleLogout()}>
             退出登录
           </button>
         </div>
-      </div>
-      <header className="hero">
-        <p className="eyebrow">Study Guardian · 学习桌守护</p>
         <div className="hero-row">
           <div>
             <h1>学习桌智能守护系统</h1>
             <p className="muted">实时关注学习桌前的画面与坐姿，守护专注与健康</p>
           </div>
         </div>
-        <div className="tabs">
-          <button
-            className={activeTab === "captures" ? "tab active" : "tab"}
-            onClick={() => setActiveTab("captures")}
-            type="button"
-          >
-            学习画面
-          </button>
-          <button
-            className={activeTab === "postures" ? "tab active" : "tab"}
-            onClick={() => setActiveTab("postures")}
-            type="button"
-          >
-            坐姿预警
-          </button>
-        </div>
       </header>
 
-      {activeTab === "captures" && (
-        <section className="card simple-card">
+      <section className="card combined-card">
+        <div className="subcard">
+          <div className="card-head">
+            <div>
+              <p className="eyebrow">学习画面</p>
+              <h3 className="card-title">实时抓拍</h3>
+            </div>
+          </div>
           {error && <p className="error-text">{error}</p>}
 
           {loading ? (
@@ -448,11 +427,15 @@ export default function App() {
               })}
             </div>
           )}
-        </section>
-      )}
+        </div>
 
-      {activeTab === "postures" && (
-        <section className="card simple-card">
+        <div className="subcard">
+          <div className="card-head">
+            <div>
+              <p className="eyebrow">坐姿预警</p>
+              <h3 className="card-title">异常提醒</h3>
+            </div>
+          </div>
           {postureError && <p className="error-text">{postureError}</p>}
 
           {postureLoading ? (
@@ -490,8 +473,8 @@ export default function App() {
               </table>
             </div>
           )}
-        </section>
-      )}
+        </div>
+      </section>
     </div>
   );
 }
