@@ -19,3 +19,4 @@ tracing = "0.1"
 tracing-appender = "0.2"
 mime_guess = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
+jsonwebtoken = "9"

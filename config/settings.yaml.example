@@ -46,6 +46,12 @@ server:
   external_port: 5009  # 外部暴露端口 (Nginx 监听)
   backend_bind: 127.0.0.1:8000  # Rust 后端内部监听地址
 
+auth:
+  username: admin        # 登录用户名（请修改）
+  password: change-me    # 登录密码（请修改）
+  secret: change-me-please-very-long-secret # JWT 签名密钥（务必改为高强度随机串）
+  session_minutes: 5     # JWT 有效期（分钟）
+
 ssl:
   domain: "example.com"          # e.g. proxy.example.com
   wildcard: false     # set true to request *.domain + root
