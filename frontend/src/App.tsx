@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+type SessionInfo = {
+  username: string;
+  token: string;
+  expiresAt: number; // epoch seconds
+};
+
+const SESSION_KEY = "sg-auth-session";
 
 type FaceCapture = {
   id?: number | string;
@@ -120,7 +128,37 @@ function resolvePostureImageSrc(event: PostureEvent, apiBase: string): string | 
   return src;
 }
 
+function withToken(src: string | null, token?: string | null): string | null {
+  if (!src) return null;
+  if (!token) return src;
+  if (src.startsWith("data:")) return src;
+  const joiner = src.includes("?") ? "&" : "?";
+  return `${src}${joiner}token=${encodeURIComponent(token)}`;
+}
+
+function readStoredSession(): SessionInfo | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SessionInfo;
+    if (!parsed?.username || !parsed?.token || !parsed?.expiresAt) return null;
+    if (Date.now() >= parsed.expiresAt * 1000) {
+      window.localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
+  const [session, setSession] = useState<SessionInfo | null>(() => readStoredSession());
+  const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [logoutReason, setLogoutReason] = useState<string | null>(null);
   const [captures, setCaptures] = useState<FaceCapture[]>([]);
   const [postures, setPostures] = useState<PostureEvent[]>([]);
   const [activeTab, setActiveTab] = useState<"captures" | "postures">("captures");
@@ -135,18 +173,39 @@ export default function App() {
     return q.endsWith("/") ? q.slice(0, -1) : q;
   }, []);
 
+  const loginUrl = apiBase ? `${apiBase}/api/login` : "/api/login";
   const listUrl = apiBase ? `${apiBase}/api/face-captures?limit=40` : "/api/face-captures?limit=40";
   const postureUrl = apiBase ? `${apiBase}/api/posture-events?is_bad=true&limit=50` : "/api/posture-events?is_bad=true&limit=50";
+  const remainingMinutes = session ? Math.max(1, Math.round((session.expiresAt * 1000 - Date.now()) / 60000)) : 0;
+  const expiresAtText = session ? new Date(session.expiresAt * 1000).toLocaleTimeString() : "";
 
   useEffect(() => {
+    if (!session) {
+      setCaptures([]);
+      setPostures([]);
+      setLoading(false);
+      setPostureLoading(false);
+      return;
+    }
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+
     let cancelled = false;
 
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(listUrl);
+        const res = await fetch(listUrl, {
+          headers: session ? { Authorization: `Bearer ${session.token}` } : undefined,
+        });
         if (!res.ok) {
+          if (res.status === 401) {
+            handleLogout("登录已过期，请重新登录");
+            return;
+          }
           throw new Error(`接口返回 ${res.status}`);
         }
         const text = await res.text();
@@ -179,16 +238,24 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [listUrl]);
+  }, [listUrl, session]);
 
   useEffect(() => {
+    if (!session) return;
+
     let cancelled = false;
     async function loadPostures() {
       setPostureLoading(true);
       setPostureError(null);
       try {
-        const res = await fetch(postureUrl);
+        const res = await fetch(postureUrl, {
+          headers: session ? { Authorization: `Bearer ${session.token}` } : undefined,
+        });
         if (!res.ok) {
+          if (res.status === 401) {
+            handleLogout("登录已过期，请重新登录");
+            return;
+          }
           throw new Error(`姿势接口返回 ${res.status}`);
         }
         const text = await res.text();
@@ -216,10 +283,117 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [postureUrl]);
+  }, [postureUrl, session]);
+
+  useEffect(() => {
+    if (!session) return;
+    const remaining = session.expiresAt * 1000 - Date.now();
+    if (remaining <= 0) {
+      handleLogout("登录已过期，请重新登录");
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      handleLogout("登录已过期，请重新登录");
+    }, remaining);
+    return () => window.clearTimeout(timer);
+  }, [session]);
+
+  function handleLogout(reason?: string) {
+    setSession(null);
+    setLogoutReason(reason || null);
+    setPasswordInput("");
+    setAuthError(null);
+    window.localStorage.removeItem(SESSION_KEY);
+  }
+
+  function handleLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const username = usernameInput.trim();
+    setAuthError(null);
+    fetch(loginUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password: passwordInput }),
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const msg = res.status === 401 ? "用户名或密码不正确" : `登录失败（${res.status}）`;
+          throw new Error(msg);
+        }
+        const data = await res.json();
+        const payload: SessionInfo = {
+          username: data.username || username,
+          token: data.token,
+          expiresAt: Number(data.expires_at),
+        };
+        if (!payload.token || !payload.expiresAt) {
+          throw new Error("登录响应格式不正确");
+        }
+        setSession(payload);
+        setLogoutReason(null);
+        window.localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+      })
+      .catch((err: any) => {
+        setAuthError(err?.message || "登录失败");
+      });
+  }
+
+  if (!session) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <p className="eyebrow">Study Guardian</p>
+          <h1>登录监控面板</h1>
+          <p className="muted">
+            请输入用户名和密码。后端会生成短期 JWT，会话过期后需要重新登录。
+          </p>
+          {logoutReason && <div className="session-note">{logoutReason}</div>}
+          {authError && <div className="session-note error">{authError}</div>}
+          <form className="login-form" onSubmit={handleLogin}>
+            <label className="field">
+              <span>用户名</span>
+              <input
+                name="username"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                required
+                autoComplete="username"
+              />
+            </label>
+            <label className="field">
+              <span>密码</span>
+              <input
+                name="password"
+                type="password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </label>
+            <button className="primary-btn" type="submit">
+              登录
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
+      <div className="session-bar">
+        <div>
+          <p className="muted small">已登录</p>
+          <p className="identity">{session.username}</p>
+        </div>
+        <div className="session-meta">
+          <p className="muted small">会话剩余约 {remainingMinutes} 分钟（到 {expiresAtText} 过期）</p>
+          <button className="ghost-btn" onClick={() => handleLogout()}>
+            退出登录
+          </button>
+        </div>
+      </div>
       <header className="hero">
         <p className="eyebrow">Study Guardian · 学习桌守护</p>
         <div className="hero-row">
@@ -257,7 +431,7 @@ export default function App() {
           ) : (
             <div className="capture-grid">
               {captures.map((capture) => {
-                const src = resolveImageSrc(capture, apiBase);
+                const src = withToken(resolveImageSrc(capture, apiBase), session?.token);
                 const key = capture.id ?? capture.frame_path ?? capture.timestamp ?? Math.random().toString(36);
                 const identity = displayIdentity(capture.identity);
                 return (
@@ -298,7 +472,7 @@ export default function App() {
                 <tbody>
                   {postures.map((event) => {
                     const key = event.id ?? event.timestamp ?? Math.random().toString(36);
-                    const src = resolvePostureImageSrc(event, apiBase);
+                    const src = withToken(resolvePostureImageSrc(event, apiBase), session?.token);
                     const reasons = (event.reasons && event.reasons.length > 0 ? event.reasons : ["姿势异常"]).join(" / ");
                     return (
                       <tr key={key}>

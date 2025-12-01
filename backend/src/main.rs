@@ -7,13 +7,16 @@ use std::{
 
 use anyhow::{Context, Result};
 use axum::{
+    body::Body,
     extract::{Path as AxumPath, Query, State},
-    http::StatusCode,
+    http::{header::AUTHORIZATION, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgPoolOptions, FromRow, Pool, Postgres, Row};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -26,6 +29,16 @@ static FILE_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceL
 struct AppState {
     pool: Pool<Postgres>,
     capture_root: Option<PathBuf>,
+    auth: AuthSettings,
+}
+
+#[derive(Clone)]
+struct AuthSettings {
+    username: String,
+    password: String,
+    session_minutes: i64,
+    encoding: EncodingKey,
+    decoding: DecodingKey,
 }
 
 #[derive(Debug, Deserialize)]
@@ -97,6 +110,26 @@ struct ApiErrorBody {
     message: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct LoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LoginResponse {
+    token: String,
+    expires_at: i64,
+    username: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct Claims {
+    sub: String,
+    exp: usize,
+    iat: usize,
+}
+
 struct ApiError(anyhow::Error, StatusCode);
 
 impl IntoResponse for ApiError {
@@ -133,8 +166,15 @@ async fn main() -> Result<()> {
 
     let capture_root = capture_root(config.as_ref());
 
-    let state = AppState { pool, capture_root };
-    let app = Router::new()
+    let auth = build_auth_settings(config.as_ref());
+
+    let state = AppState {
+        pool,
+        capture_root,
+        auth,
+    };
+
+    let protected_routes = Router::new()
         .route("/api/face-captures", get(list_face_captures))
         .route("/api/face-captures/:id/image", get(get_face_capture_image))
         .route("/api/posture-events", get(list_posture_events))
@@ -142,6 +182,12 @@ async fn main() -> Result<()> {
             "/api/posture-events/:id/image",
             get(get_posture_event_image),
         )
+        .with_state(state.clone())
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
+
+    let app = Router::new()
+        .route("/api/login", post(login))
+        .merge(protected_routes)
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
@@ -170,6 +216,47 @@ async fn main() -> Result<()> {
         .context("服务运行失败")?;
 
     Ok(())
+}
+
+async fn login(
+    State(state): State<AppState>,
+    Json(payload): Json<LoginRequest>,
+) -> Result<Json<LoginResponse>, ApiError> {
+    if payload.username != state.auth.username || payload.password != state.auth.password {
+        return Err(ApiError(
+            anyhow::anyhow!("用户名或密码错误"),
+            StatusCode::UNAUTHORIZED,
+        ));
+    }
+
+    let now = Utc::now();
+    let exp = now + chrono::Duration::minutes(state.auth.session_minutes.max(1));
+    let claims = Claims {
+        sub: payload.username.clone(),
+        iat: now.timestamp() as usize,
+        exp: exp.timestamp() as usize,
+    };
+
+    let token = encode(&Header::default(), &claims, &state.auth.encoding)
+        .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    Ok(Json(LoginResponse {
+        token,
+        expires_at: exp.timestamp(),
+        username: payload.username,
+    }))
+}
+
+async fn require_auth(
+    State(state): State<AppState>,
+    mut req: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let token = extract_token(&req).ok_or(StatusCode::UNAUTHORIZED)?;
+
+    let claims = validate_token(token, &state.auth).map_err(|_| StatusCode::UNAUTHORIZED)?;
+    req.extensions_mut().insert(claims);
+    Ok(next.run(req).await)
 }
 
 async fn list_face_captures(
@@ -449,6 +536,8 @@ struct Settings {
     server: Option<ServerConfig>,
     #[serde(default)]
     face_capture: Option<FaceCaptureConfig>,
+    #[serde(default)]
+    auth: Option<AuthConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -471,6 +560,18 @@ struct ServerConfig {
 struct FaceCaptureConfig {
     #[serde(default)]
     root: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AuthConfig {
+    #[serde(default)]
+    username: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
+    #[serde(default)]
+    secret: Option<String>,
+    #[serde(default)]
+    session_minutes: Option<i64>,
 }
 
 fn load_config(path: impl AsRef<Path>) -> Result<Settings> {
@@ -560,4 +661,63 @@ fn build_file_writer(path: &str) -> Option<tracing_appender::non_blocking::NonBl
     let _ = FILE_GUARD.set(guard); // keep guard alive for process lifetime
 
     Some(writer)
+}
+
+fn build_auth_settings(settings: Option<&Settings>) -> AuthSettings {
+    let config_auth = settings.and_then(|s| s.auth.as_ref());
+
+    let username = config_auth
+        .and_then(|a| a.username.clone())
+        .unwrap_or_else(|| "admin".to_string());
+
+    let password = config_auth
+        .and_then(|a| a.password.clone())
+        .unwrap_or_else(|| "studyguardian".to_string());
+
+    let secret = config_auth
+        .and_then(|a| a.secret.clone())
+        .unwrap_or_else(|| "change-me-please".to_string());
+
+    let minutes = config_auth
+        .and_then(|a| a.session_minutes)
+        .unwrap_or(5)
+        .max(1);
+
+    AuthSettings {
+        username,
+        password,
+        session_minutes: minutes,
+        encoding: EncodingKey::from_secret(secret.as_bytes()),
+        decoding: DecodingKey::from_secret(secret.as_bytes()),
+    }
+}
+
+fn validate_token(token: &str, auth: &AuthSettings) -> Result<Claims> {
+    let validation = Validation::default();
+    let data = decode::<Claims>(token, &auth.decoding, &validation)?;
+    Ok(data.claims)
+}
+
+fn extract_token(req: &Request<Body>) -> Option<&str> {
+    if let Some(header) = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        return Some(header);
+    }
+
+    let query = req.uri().query().unwrap_or("");
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if let (Some(key), Some(value)) = (parts.next(), parts.next()) {
+            if key == "token" && !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
