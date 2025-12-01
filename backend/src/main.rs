@@ -44,6 +44,7 @@ struct AuthSettings {
 #[derive(Debug, Deserialize)]
 struct ListParams {
     limit: Option<i64>,
+    group_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -264,24 +265,58 @@ async fn list_face_captures(
     Query(params): Query<ListParams>,
 ) -> Result<Json<Vec<FaceCapture>>, ApiError> {
     let limit = params.limit.unwrap_or(40).clamp(1, 200);
-    tracing::info!("GET /api/face-captures?limit={}", limit);
-    let rows = sqlx::query_as::<_, FaceCaptureRow>(
-        r#"
-        SELECT
-            id,
-            identity,
-            group_tag,
-            frame_path,
-            face_distance,
-            timestamp
-        FROM face_captures
-        ORDER BY timestamp DESC
-        LIMIT $1
-        "#,
-    )
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await
+    let group_tag = params
+        .group_tag
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
+
+    if let Some(tag) = group_tag.as_deref() {
+        tracing::info!("GET /api/face-captures?limit={}&group_tag={}", limit, tag);
+    } else {
+        tracing::info!("GET /api/face-captures?limit={}", limit);
+    }
+
+    let rows = if let Some(group_tag) = group_tag {
+        sqlx::query_as::<_, FaceCaptureRow>(
+            r#"
+            SELECT
+                id,
+                identity,
+                group_tag,
+                frame_path,
+                face_distance,
+                timestamp
+            FROM face_captures
+            WHERE group_tag = $1
+            ORDER BY timestamp DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(group_tag)
+        .bind(limit)
+        .fetch_all(&state.pool)
+        .await
+    } else {
+        sqlx::query_as::<_, FaceCaptureRow>(
+            r#"
+            SELECT
+                id,
+                identity,
+                group_tag,
+                frame_path,
+                face_distance,
+                timestamp
+            FROM face_captures
+            ORDER BY timestamp DESC
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&state.pool)
+        .await
+    }
     .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?;
 
     let data = rows

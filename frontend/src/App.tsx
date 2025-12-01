@@ -11,6 +11,7 @@ const SESSION_KEY = "sg-auth-session";
 type FaceCapture = {
   id?: number | string;
   identity?: string;
+  group_tag?: string | null;
   timestamp?: string;
   frame_path?: string;
   image?: string;
@@ -41,10 +42,12 @@ function normalizeCapture(raw: any): FaceCapture | null {
   const timestamp = raw.timestamp || raw.time || raw.ts || new Date().toISOString();
   const id = raw.id ?? raw.face_capture_id ?? raw.capture_id;
   const faceDistance = raw.face_distance ?? raw.distance;
+  const groupTag = raw.group_tag || raw.group || raw.groupTag || null;
   if (!framePath && !image && !identity) return null;
   return {
     id,
     identity,
+    group_tag: groupTag,
     timestamp,
     frame_path: framePath,
     image,
@@ -172,8 +175,21 @@ export default function App() {
     return q.endsWith("/") ? q.slice(0, -1) : q;
   }, []);
 
+  const captureGroupFilter = useMemo(() => {
+    const raw = new URLSearchParams(window.location.search).get("group_tag");
+    if (raw === null) return "child";
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "*" || trimmed.toLowerCase() === "all") return null;
+    return trimmed;
+  }, []);
+
   const loginUrl = apiBase ? `${apiBase}/api/login` : "/api/login";
-  const listUrl = apiBase ? `${apiBase}/api/face-captures?limit=40` : "/api/face-captures?limit=40";
+  const listUrl = useMemo(() => {
+    const base = apiBase ? `${apiBase}/api/face-captures` : "/api/face-captures";
+    const params = new URLSearchParams({ limit: "40" });
+    if (captureGroupFilter) params.set("group_tag", captureGroupFilter);
+    return `${base}?${params.toString()}`;
+  }, [apiBase, captureGroupFilter]);
   const postureUrl = apiBase ? `${apiBase}/api/posture-events?is_bad=true&limit=50` : "/api/posture-events?is_bad=true&limit=50";
 
   useEffect(() => {
@@ -213,11 +229,12 @@ export default function App() {
           throw new Error(`接口返回的不是 JSON，检查接口地址。响应开头: ${text.slice(0, 120)}`);
         }
         const items: any[] = Array.isArray(data) ? data : data?.items || data?.data || [];
-        const normalized = items
-          .map((item) => normalizeCapture(item))
-          .filter(Boolean) as FaceCapture[];
+        const normalized = items.map((item) => normalizeCapture(item)).filter(Boolean) as FaceCapture[];
+        const filtered = captureGroupFilter
+          ? normalized.filter((item) => item.group_tag === captureGroupFilter)
+          : normalized;
         if (!cancelled) {
-          setCaptures(normalized);
+          setCaptures(filtered);
         }
       } catch (err: any) {
         if (!cancelled) {
@@ -235,7 +252,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [listUrl, session]);
+  }, [listUrl, session, captureGroupFilter]);
 
   useEffect(() => {
     if (!session) return;
