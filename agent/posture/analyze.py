@@ -76,14 +76,22 @@ class PostureService:
         nose = lm[self._mp_pose.PoseLandmark.NOSE]
         left_shoulder = lm[self._mp_pose.PoseLandmark.LEFT_SHOULDER]
         right_shoulder = lm[self._mp_pose.PoseLandmark.RIGHT_SHOULDER]
-        left_hip = lm[self._mp_pose.PoseLandmark.LEFT_HIP]
-        right_hip = lm[self._mp_pose.PoseLandmark.RIGHT_HIP]
+        need_neck_angle = self._config.neck_angle is not None
+        left_hip = (
+            lm[self._mp_pose.PoseLandmark.LEFT_HIP] if need_neck_angle else None
+        )
+        right_hip = (
+            lm[self._mp_pose.PoseLandmark.RIGHT_HIP] if need_neck_angle else None
+        )
 
         visibility_threshold = self._config.visibility_threshold
         if visibility_threshold is not None:
+            required_parts = [nose, left_shoulder, right_shoulder]
+            if need_neck_angle and left_hip and right_hip:
+                required_parts.extend([left_hip, right_hip])
             if not all(
                 self._is_confident(part, visibility_threshold)
-                for part in (nose, left_shoulder, right_shoulder, left_hip, right_hip)
+                for part in required_parts
             ):
                 logger.debug(
                     "Landmarks below visibility threshold {:.2f}, skipping posture frame",
@@ -92,10 +100,12 @@ class PostureService:
                 return None
 
         shoulder_center = self._average_point((left_shoulder, right_shoulder))
-        hip_center = self._average_point((left_hip, right_hip))
-
         nose_drop = nose.y - shoulder_center.y
-        neck_angle = self._angle_between(nose, shoulder_center, hip_center)
+        neck_angle = (
+            self._angle_between(nose, shoulder_center, self._average_point((left_hip, right_hip)))
+            if need_neck_angle and left_hip and right_hip
+            else 0.0
+        )
 
         reasons: List[str] = []
         if nose_drop > self._config.nose_drop:

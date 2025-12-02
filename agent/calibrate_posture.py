@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import statistics
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -76,9 +77,16 @@ def _collect_samples(
     max_frames: int,
     posture_service,
     save_dir: Path,
-) -> tuple[List[float], List[float]]:
+    collect_angle: bool,
+) -> tuple[List[float], List[float], Dict[str, int]]:
     drops: list[float] = []
     angles: list[float] = []
+    stats: Dict[str, int] = {
+        "frames": 0,
+        "valid": 0,
+        "no_landmarks": 0,
+        "filtered": 0,
+    }
 
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -92,10 +100,13 @@ def _collect_samples(
     )
 
     def _collect(frame: "Any") -> bool:
+        stats["frames"] += 1
         assessment, landmarks = posture_service.analyze_with_landmarks(frame)
         if assessment:
+            stats["valid"] += 1
             drops.append(assessment.nose_drop)
-            angles.append(assessment.neck_angle)
+            if collect_angle:
+                angles.append(assessment.neck_angle)
             _save_snapshot(
                 frame,
                 landmarks,
@@ -105,11 +116,17 @@ def _collect_samples(
                 neck_angle=assessment.neck_angle,
             )
             logger.info(
-                "Sample #%d nose_drop=%.3f neck_angle=%.1f",
+                "Sample #{:02d} nose_drop={:.3f} neck_angle={:.1f}",
                 len(drops),
                 assessment.nose_drop,
                 assessment.neck_angle,
             )
+        else:
+            if landmarks is None:
+                stats["no_landmarks"] += 1
+            else:
+                stats["filtered"] += 1
+
         if len(drops) >= target_samples:
             return False
         return True
@@ -119,7 +136,7 @@ def _collect_samples(
     finally:
         stream.release()
 
-    return drops, angles
+    return drops, angles, stats
 
 
 def main() -> None:
@@ -132,30 +149,38 @@ def main() -> None:
     ensure_no_proxy(camera_url)
     capture_cfg = settings.get("capture", {}) or {}
     posture_cfg = settings.get("posture", {}) or {}
+    calibrate_angle = posture_cfg.get("neck_angle") is not None
     # Fallback thresholds during calibration to avoid NoneType casting errors.
     if posture_cfg.get("nose_drop") is None:
         posture_cfg["nose_drop"] = (
             1.0  # permissive placeholder; real value will be overwritten
         )
-    if posture_cfg.get("neck_angle") is None:
-        posture_cfg["neck_angle"] = 180.0
     save_dir = args.save_dir if args.save_dir.is_absolute() else (root / args.save_dir)
     _prepare_save_dir(save_dir, clean=not args.keep_existing)
 
     target_samples = args.samples
     max_frames = args.max_frames or target_samples * 2
 
+    if not calibrate_angle:
+        logger.info("Neck angle disabled; calibration will only adjust nose_drop")
+
     logger.info(
-        "Starting posture calibration: samples=%d max_frames=%d nose_margin=%.3f angle_margin=%.1f",
+        "Starting posture calibration: samples={} max_frames={} nose_margin={:.3f} angle_margin={}",
         target_samples,
         max_frames,
         args.nose_margin,
-        args.angle_margin,
+        f"{args.angle_margin:.1f}" if calibrate_angle else "n/a",
     )
 
     posture_service = build_posture_service(posture_cfg)
-    drops, angles = _collect_samples(
-        camera_url, capture_cfg, target_samples, max_frames, posture_service, save_dir
+    drops, angles, stats = _collect_samples(
+        camera_url,
+        capture_cfg,
+        target_samples,
+        max_frames,
+        posture_service,
+        save_dir,
+        collect_angle=calibrate_angle,
     )
     posture_service.close()
 
@@ -164,35 +189,54 @@ def main() -> None:
             "No valid posture samples collected; ensure subject is in frame with shoulders visible"
         )
 
-    avg_drop = sum(drops) / len(drops)
-    avg_angle = sum(angles) / len(angles)
-    new_drop = avg_drop + args.nose_margin
-    new_angle = avg_angle + args.angle_margin
+    samples_ratio = stats["valid"] / stats["frames"] if stats["frames"] else 0.0
+    logger.info(
+        "Calibration quality: {:.1f}% valid ({}/{}) frames, {} without landmarks, {} filtered",
+        samples_ratio * 100,
+        stats["valid"],
+        stats["frames"],
+        stats["no_landmarks"],
+        stats["filtered"],
+    )
+
+    median_drop = statistics.median(drops)
+    new_drop = median_drop + args.nose_margin
+    median_angle = statistics.median(angles) if angles else None
+    new_angle = median_angle + args.angle_margin if median_angle is not None else None
 
     settings.setdefault("posture", {})
     settings["posture"]["nose_drop"] = round(new_drop, 4)
-    settings["posture"]["neck_angle"] = round(new_angle, 2)
+    settings["posture"]["neck_angle"] = (
+        round(new_angle, 2) if new_angle is not None else None
+    )
     settings["posture_metadata"] = {
         # Use local time with offset to avoid confusion when viewing logs/files.
         "calibrated_at": dt.datetime.now().astimezone().isoformat(),
         "samples": len(drops),
         "nose_margin": args.nose_margin,
-        "angle_margin": args.angle_margin,
-        "avg_drop": round(avg_drop, 4),
-        "avg_angle": round(avg_angle, 2),
+        "angle_margin": args.angle_margin if calibrate_angle else None,
+        "avg_drop": round(median_drop, 4),
+        "avg_angle": round(median_angle, 2) if median_angle is not None else None,
     }
 
     with (root / settings_path).open("w", encoding="utf-8") as handle:
         yaml.safe_dump(settings, handle, sort_keys=False, allow_unicode=True)
 
-    logger.info(
-        "Calibration complete. Updated thresholds: nose_drop=%.4f neck_angle=%.2f (avg_drop=%.4f avg_angle=%.2f)",
-        new_drop,
-        new_angle,
-        avg_drop,
-        avg_angle,
-    )
-    logger.info("Settings saved to %s", (root / settings_path))
+    if new_angle is None:
+        logger.info(
+            "Calibration complete. Updated nose_drop=%.4f (median_drop=%.4f); neck angle disabled",
+            new_drop,
+            median_drop,
+        )
+    else:
+        logger.info(
+            "Calibration complete. Updated thresholds: nose_drop={:.4f} neck_angle={:.2f} (median_drop={:.4f} median_angle={:.2f})",
+            new_drop,
+            new_angle,
+            median_drop,
+            median_angle,
+        )
+    logger.info("Settings saved to {}", (root / settings_path))
 
 
 def _save_snapshot(
