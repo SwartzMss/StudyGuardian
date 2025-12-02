@@ -142,13 +142,20 @@ function withToken(src: string | null, token?: string | null): string | null {
 function readStoredSession(): SessionInfo | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as SessionInfo;
+    const raw = window.sessionStorage.getItem(SESSION_KEY);
+    const fallbackRaw = raw || window.localStorage.getItem(SESSION_KEY);
+    if (!fallbackRaw) return null;
+    const parsed = JSON.parse(fallbackRaw) as SessionInfo;
     if (!parsed?.username || !parsed?.token || !parsed?.expiresAt) return null;
     if (Date.now() >= parsed.expiresAt * 1000) {
+      window.sessionStorage.removeItem(SESSION_KEY);
       window.localStorage.removeItem(SESSION_KEY);
       return null;
+    }
+    // Migrate旧数据到 sessionStorage，确保关闭页面后自动失效
+    if (fallbackRaw && !raw) {
+      window.sessionStorage.setItem(SESSION_KEY, fallbackRaw);
+      window.localStorage.removeItem(SESSION_KEY);
     }
     return parsed;
   } catch {
@@ -162,12 +169,14 @@ export default function App() {
   const [passwordInput, setPasswordInput] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [logoutReason, setLogoutReason] = useState<string | null>(null);
+  const [captureLimit, setCaptureLimit] = useState(40);
   const [captures, setCaptures] = useState<FaceCapture[]>([]);
   const [postures, setPostures] = useState<PostureEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [postureLoading, setPostureLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [postureError, setPostureError] = useState<string | null>(null);
+  const isInitialCaptureLoading = loading && captures.length === 0;
 
   const apiBase = useMemo(() => {
     const q = new URLSearchParams(window.location.search).get("api");
@@ -186,10 +195,10 @@ export default function App() {
   const loginUrl = apiBase ? `${apiBase}/api/login` : "/api/login";
   const listUrl = useMemo(() => {
     const base = apiBase ? `${apiBase}/api/face-captures` : "/api/face-captures";
-    const params = new URLSearchParams({ limit: "40" });
+    const params = new URLSearchParams({ limit: String(captureLimit) });
     if (captureGroupFilter) params.set("group_tag", captureGroupFilter);
     return `${base}?${params.toString()}`;
-  }, [apiBase, captureGroupFilter]);
+  }, [apiBase, captureGroupFilter, captureLimit]);
   const postureUrl = apiBase ? `${apiBase}/api/posture-events?is_bad=true&limit=50` : "/api/posture-events?is_bad=true&limit=50";
 
   useEffect(() => {
@@ -201,6 +210,10 @@ export default function App() {
       return;
     }
   }, [session]);
+
+  useEffect(() => {
+    setCaptureLimit(40);
+  }, [captureGroupFilter, session]);
 
   useEffect(() => {
     if (!session) return;
@@ -317,6 +330,7 @@ export default function App() {
     setLogoutReason(reason || null);
     setPasswordInput("");
     setAuthError(null);
+    window.sessionStorage.removeItem(SESSION_KEY);
     window.localStorage.removeItem(SESSION_KEY);
   }
 
@@ -345,7 +359,8 @@ export default function App() {
         }
         setSession(payload);
         setLogoutReason(null);
-        window.localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+        window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(payload));
+        window.localStorage.removeItem(SESSION_KEY);
       })
       .catch((err: any) => {
         setAuthError(err?.message || "登录失败");
@@ -420,7 +435,7 @@ export default function App() {
           </div>
           {error && <p className="error-text">{error}</p>}
 
-          {loading ? (
+          {isInitialCaptureLoading ? (
             <div className="placeholder tall">加载中…</div>
           ) : captures.length === 0 ? (
             <div className="placeholder tall">暂无数据</div>
@@ -442,6 +457,17 @@ export default function App() {
                   </article>
                 );
               })}
+            </div>
+          )}
+          {!loading && captures.length >= captureLimit && (
+            <div className="load-more-row">
+              <button
+                className="load-more-btn"
+                onClick={() => setCaptureLimit((v) => v + 40)}
+                disabled={loading}
+              >
+                {loading ? "加载中…" : "加载更多"}
+              </button>
             </div>
           )}
         </div>

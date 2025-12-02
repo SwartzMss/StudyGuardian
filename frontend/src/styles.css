@@ -26,7 +26,7 @@ body {
 }
 
 .page {
-  max-width: 1100px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 28px 20px 44px;
   display: flex;
@@ -261,7 +261,7 @@ body {
 
 .combined-card {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: 1.4fr 0.6fr;
   gap: 12px;
   padding: 12px;
 }
@@ -293,9 +293,45 @@ body {
 
 .capture-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 14px;
-  padding: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  padding: 10px 10px 16px;
+}
+
+.load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 4px 10px 12px;
+}
+
+.load-more-btn {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  box-shadow: 0 8px 22px rgba(15, 36, 52, 0.08);
+}
+
+.load-more-btn:hover {
+  border-color: rgba(15, 36, 52, 0.24);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(15, 36, 52, 0.12);
+}
+
+.load-more-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 8px 20px rgba(15, 36, 52, 0.1);
+}
+
+.load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .capture-card {
