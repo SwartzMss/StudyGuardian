@@ -34,7 +34,14 @@ from agent.storage import (
     StorageConfig,
     FaceCaptureRetentionWorker,
 )
-from agent.sensors import Buzzer, PIRSensor, build_buzzer, build_pir_sensor
+from agent.sensors import (
+    Buzzer,
+    DHT22Sensor,
+    PIRSensor,
+    build_buzzer,
+    build_dht22_sensor,
+    build_pir_sensor,
+)
 
 
 class MotionGate:
@@ -418,6 +425,66 @@ def calibrate_posture(
     )
 
 
+class EnvLogger:
+    """Minimal logger for environment readings."""
+
+    def __init__(
+        self,
+        dsn: str,
+        table: str = "environment_events",
+        retention_days: Optional[float] = 3.0,
+    ) -> None:
+        try:
+            import psycopg2  # type: ignore
+        except ImportError as exc:
+            raise RuntimeError(
+                "psycopg2-binary is required for environment logging"
+            ) from exc
+
+        self._table = table
+        self._conn = psycopg2.connect(dsn)
+        self._retention_days = (
+            float(retention_days) if retention_days and retention_days > 0 else None
+        )
+        self._ensure_table()
+
+    def _ensure_table(self) -> None:
+        cursor = self._conn.cursor()
+        cursor.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self._table} (
+              id BIGSERIAL PRIMARY KEY,
+              temperature DOUBLE PRECISION,
+              humidity DOUBLE PRECISION,
+              timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+        cursor.close()
+        self._conn.commit()
+
+    def log(self, humidity: float, temperature: float) -> None:
+        cursor = self._conn.cursor()
+        cursor.execute(
+            f"INSERT INTO {self._table} (humidity, temperature) VALUES (%s, %s)",
+            (humidity, temperature),
+        )
+        if self._retention_days:
+            cursor.execute(
+                f"DELETE FROM {self._table} "
+                "WHERE timestamp < (NOW() - (%s || ' days')::interval)",
+                (self._retention_days,),
+            )
+        cursor.close()
+        self._conn.commit()
+
+    def close(self) -> None:
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     settings_path = root / "config" / "settings.yaml"
@@ -432,6 +499,19 @@ def main() -> None:
     buzzer_beep_count = int(buzzer_cfg.get("beep_count", 2))
     buzzer_beep_interval = float(buzzer_cfg.get("beep_interval_seconds", 0.4))
     buzzer_min_gap_seconds = float(buzzer_cfg.get("min_gap_seconds", 5.0))
+
+    dht_sensor: Optional[DHT22Sensor] = None
+    dht_thread: Optional[threading.Thread] = None
+    dht_stop_event = threading.Event()
+    dht_cfg = settings.get("dht22") or {}
+    dht_interval = max(1.0, float(dht_cfg.get("poll_interval_seconds", 30.0)))
+    dht_retention_days_raw = dht_cfg.get("retention_days", 3.0)
+    dht_retention_days = (
+        float(dht_retention_days_raw) if dht_retention_days_raw is not None else None
+    )
+    env_logger: Optional[EnvLogger] = None
+    env_table = "environment_events"
+    env_dsn = (settings.get("storage") or {}).get("postgres_dsn")
 
     pir_sensor: Optional[PIRSensor] = None
     pir_cfg = settings.get("pir_sensor") or {}
@@ -450,10 +530,44 @@ def main() -> None:
             idle_timeout_seconds,
         )
 
+    def _poll_dht() -> None:
+        while not dht_stop_event.is_set():
+            if dht_sensor is None:
+                break
+            humidity, temperature = dht_sensor.read()
+            if humidity is None or temperature is None:
+                logger.debug("DHT22 reading unavailable")
+            else:
+                logger.info(
+                    "DHT22 {:.1f}% RH / {:.1f}°C", humidity, temperature
+                )
+                if env_logger:
+                    try:
+                        env_logger.log(humidity, temperature)
+                    except Exception as exc:
+                        logger.debug("DHT22 DB log failed: {}", exc)
+            dht_stop_event.wait(dht_interval)
+
     try:
         motion_gate = MotionGate(idle_timeout_seconds)
         pir_sensor = build_pir_sensor(pir_cfg, on_motion=_on_motion)
         buzzer = build_buzzer(buzzer_cfg)
+        dht_sensor = build_dht22_sensor(dht_cfg)
+        if dht_sensor and env_dsn:
+            try:
+                env_logger = EnvLogger(
+                    env_dsn,
+                    table=env_table,
+                    retention_days=dht_retention_days,
+                )
+                logger.info(
+                    "Env logging enabled to table {} (poll every {:.0f}s, retention={}d)",
+                    env_table,
+                    dht_interval,
+                    dht_retention_days if dht_retention_days is not None else "∞",
+                )
+            except Exception as exc:
+                logger.warning("Env logger not started: {}", exc)
         if pir_sensor:
             logger.info(
                 "PIR sensor enabled (no_face_timeout_seconds={:.0f})",
@@ -464,6 +578,14 @@ def main() -> None:
                 "Buzzer ready (beep_count={}, min_gap={:.1f}s)",
                 buzzer_beep_count,
                 buzzer_min_gap_seconds,
+            )
+        if dht_sensor:
+            dht_thread = threading.Thread(target=_poll_dht, daemon=True)
+            dht_thread.start()
+            logger.info(
+                "DHT22 sensor enabled on BCM {} (poll every {:.0f}s)",
+                dht_sensor.pin,
+                dht_interval,
             )
     except Exception as exc:  # pragma: no cover - hardware/runtime concerns
         logger.warning("Sensor initialization failed: {}", exc)
@@ -568,6 +690,13 @@ def main() -> None:
         posture_service.close()
         if retention_worker:
             retention_worker.stop()
+        if env_logger:
+            env_logger.close()
+        if dht_sensor:
+            dht_stop_event.set()
+            if dht_thread:
+                dht_thread.join(timeout=2)
+            dht_sensor.close()
         if pir_sensor:
             pir_sensor.close()
         if buzzer:

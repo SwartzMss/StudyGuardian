@@ -99,6 +99,12 @@ if nose_y - shoulder_y > 0.12:
 - 记录姿势类型、持续时间、抓拍帧路径、时间戳与身份标签。
 - `agent/storage/postgres.py` 会把每帧识别结果入表 `posture_events`，目前仅通过 PostgreSQL 存储，便于远程分析与备份。
 
+### 3.5 Environment (optional)｜环境监测（可选）
+
+- 支持读取 DHT22 温湿度传感器（默认关闭）；开启 `config/settings.yaml` 的 `dht22.enable` 即可。
+- 依赖 `adafruit-circuitpython-dht` 与 `adafruit-blinka`，采样间隔由 `poll_interval_seconds` 控制，数据写入 PostgreSQL 表 `environment_events`，前端通过 GET `/api/env` 读取最新值。默认只保留最近 3 天（`dht22.retention_days` 可调整或设为 null 关闭自动清理）。
+- `environment_events` 表结构：`id BIGSERIAL PRIMARY KEY`、`temperature DOUBLE PRECISION`、`humidity DOUBLE PRECISION`、`timestamp TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`。
+
 #### PostgreSQL 表结构
 
 - `face_captures`：记录所有识别到的人员（包含 `unknown`）

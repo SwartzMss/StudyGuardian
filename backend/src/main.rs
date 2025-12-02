@@ -24,12 +24,14 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, prelude::*, util::Subscriber
 use uuid::Uuid;
 
 static FILE_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
+const ENV_TABLE: &str = "environment_events";
 
 #[derive(Clone)]
 struct AppState {
     pool: Pool<Postgres>,
     capture_root: Option<PathBuf>,
     auth: AuthSettings,
+    env_table: String,
 }
 
 #[derive(Clone)]
@@ -111,6 +113,13 @@ struct ApiErrorBody {
     message: String,
 }
 
+#[derive(Debug, Serialize)]
+struct EnvReading {
+    temperature: Option<f64>,
+    humidity: Option<f64>,
+    timestamp: DateTime<FixedOffset>,
+}
+
 #[derive(Debug, Deserialize)]
 struct LoginRequest {
     username: String,
@@ -143,6 +152,28 @@ impl IntoResponse for ApiError {
     }
 }
 
+async fn get_env_reading(State(state): State<AppState>) -> Result<Response, ApiError> {
+    let query = format!(
+        "SELECT temperature, humidity, timestamp FROM {} ORDER BY timestamp DESC LIMIT 1",
+        state.env_table
+    );
+    let row = sqlx::query(&query)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(|err| ApiError(err.into(), StatusCode::INTERNAL_SERVER_ERROR))?;
+
+    if let Some(row) = row {
+        let reading = EnvReading {
+            temperature: row.try_get("temperature").unwrap_or(None),
+            humidity: row.try_get("humidity").unwrap_or(None),
+            timestamp: row.try_get("timestamp").unwrap_or_else(|_| Utc::now().into()),
+        };
+        return Ok(Json(reading).into_response());
+    }
+
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -173,6 +204,7 @@ async fn main() -> Result<()> {
         pool,
         capture_root,
         auth,
+        env_table: ENV_TABLE.to_string(),
     };
 
     let protected_routes = Router::new()
@@ -183,6 +215,7 @@ async fn main() -> Result<()> {
             "/api/posture-events/:id/image",
             get(get_posture_event_image),
         )
+        .route("/api/env", get(get_env_reading))
         .with_state(state.clone())
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth));
 

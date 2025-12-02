@@ -7,3 +7,5 @@ mediapipe>=0.10.18,<0.12
 psycopg2-binary>=2.9
 gpiozero>=2.0.1
 lgpio>=0.2.2.0
+adafruit-circuitpython-dht>=4.0.2
+adafruit-blinka>=8.30.0

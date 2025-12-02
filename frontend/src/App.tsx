@@ -33,6 +33,12 @@ type PostureEvent = {
   face_capture_id?: string;
 };
 
+type EnvReading = {
+  temperature?: number;
+  humidity?: number;
+  timestamp?: string;
+};
+
 function normalizeCapture(raw: any): FaceCapture | null {
   if (!raw || typeof raw !== "object") return null;
   const framePath = raw.frame_path || raw.path;
@@ -172,6 +178,7 @@ export default function App() {
   const [captureLimit, setCaptureLimit] = useState(40);
   const [captures, setCaptures] = useState<FaceCapture[]>([]);
   const [postures, setPostures] = useState<PostureEvent[]>([]);
+  const [env, setEnv] = useState<EnvReading | null>(null);
   const [loading, setLoading] = useState(true);
   const [postureLoading, setPostureLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +207,7 @@ export default function App() {
     return `${base}?${params.toString()}`;
   }, [apiBase, captureGroupFilter, captureLimit]);
   const postureUrl = apiBase ? `${apiBase}/api/posture-events?is_bad=true&limit=50` : "/api/posture-events?is_bad=true&limit=50";
+  const envUrl = apiBase ? `${apiBase}/api/env` : "/api/env";
 
   useEffect(() => {
     if (!session) {
@@ -314,6 +322,41 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return;
+    let cancelled = false;
+
+    async function loadEnv() {
+      try {
+        const res = await fetch(envUrl, {
+          headers: session ? { Authorization: `Bearer ${session.token}` } : undefined,
+        });
+        if (res.status === 204) {
+          if (!cancelled) setEnv(null);
+          return;
+        }
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) {
+          setEnv({
+            temperature: data.temperature ?? data.temp,
+            humidity: data.humidity ?? data.rh,
+            timestamp: data.timestamp,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) console.debug(err);
+      }
+    }
+
+    loadEnv();
+    const timer = window.setInterval(loadEnv, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [envUrl, session]);
+
+  useEffect(() => {
+    if (!session) return;
     const remaining = session.expiresAt * 1000 - Date.now();
     if (remaining <= 0) {
       handleLogout("登录已过期，请重新登录");
@@ -421,6 +464,24 @@ export default function App() {
           <div>
             <h1>学习桌智能守护系统</h1>
             <p className="muted">实时关注学习桌前的画面与坐姿，守护专注与健康</p>
+          </div>
+          <div className="env-pill">
+            <div className="env-icon" aria-hidden>
+              🌤️
+            </div>
+            <div className="env-values">
+              <div className="env-main">
+                <span className="env-temp">
+                  {env?.temperature !== undefined ? `${formatNumber(env.temperature, 1)}°C` : "—°C"}
+                </span>
+                <span className="env-hum">
+                  {env?.humidity !== undefined ? `${formatNumber(env.humidity, 1)}%` : "—%"}
+                </span>
+              </div>
+              <p className="muted small env-time">
+                {env?.timestamp ? formatTime(env.timestamp) : "等待最新"}
+              </p>
+            </div>
           </div>
         </div>
       </header>

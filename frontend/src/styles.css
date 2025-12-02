@@ -58,12 +58,61 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .hero h1 {
   margin: 4px 0 6px;
   font-size: 28px;
   letter-spacing: 0.01em;
+}
+
+.env-pill {
+  background: linear-gradient(135deg, #ffffff, #f1f7ff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+  min-width: 200px;
+  box-shadow: 0 10px 24px rgba(15, 36, 52, 0.08);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.env-icon {
+  font-size: 28px;
+  background: radial-gradient(circle at 40% 40%, rgba(31, 163, 126, 0.2), rgba(31, 163, 126, 0.06));
+  border-radius: 10px;
+  padding: 8px;
+  line-height: 1;
+}
+
+.env-values {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 700;
+  color: #0f2233;
+}
+
+.env-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.env-temp {
+  font-size: 22px;
+}
+
+.env-hum {
+  font-size: 16px;
+  color: #1f6b55;
+}
+
+.env-time {
+  margin: 0;
 }
 
 .pill {

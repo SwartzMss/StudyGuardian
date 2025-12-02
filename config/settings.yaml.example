@@ -42,6 +42,12 @@ pir_sensor:
   gpio_pin: 23  # BCM pin number for HS-SR501 OUT
   no_face_timeout_seconds: 10
 
+dht22:
+  enable: false               # 设 true 开启温湿度采集（需 adafruit-circuitpython-dht + blinka）
+  gpio_pin: 4                 # DHT22 数据脚对应的 BCM 引脚
+  poll_interval_seconds: 60   # 采样间隔（秒）
+  retention_days: 3           # 仅保留最近 N 天的数据；设为 null 关闭自动清理
+
 server:
   external_port: 5009  # 外部暴露端口 (Nginx 监听)
   backend_bind: 127.0.0.1:8000  # Rust 后端内部监听地址
