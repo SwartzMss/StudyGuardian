@@ -54,12 +54,12 @@ StudyGuardian 部署在孩子学习桌前，通过本地推理做到：
 
 - 支持注册多名家庭成员，加载 `data/known/<name>/` 的人脸库。
 - `data/known/child/<name>/` 结构允许把多个孩子的照片按名字放在 `child` 分组下，identity 会记录为 `child/<name>` 便于区分。
-- 仅当识别为孩子本人时才进入坐姿监测流程，可通过 `monitored_groups` 或 `monitored_identities` 控制允许的目录。
+- 姿态检测的范围由 `face_capture.groups` 控制：识别到的 identity 分组在其中才进入坐姿监测。默认配置中仅 `child` 分组会触发坐姿检测；若不配置分组则对所有人进行姿态检测。为避免偶发识别不到孩子导致跳过坐姿检测，新增滑动窗口：只要最近 `capture.allowed_group_grace_seconds`（默认 5 秒）内识别过目标分组，即便当前帧识别为 unknown 或未检出人脸也继续做姿态检测。
 - 未识别的人物统一标记为 `unknown` 并记录事件。
 - 陌生人（`unknown`）会自动按日期（`月日`）分目录保存在 `data/unknown/<MMDD>/<identity>_<HHMMSS>.jpg`，便于事后确认是谁靠近了学习桌，相关格式可在 `unknown_capture` 配置。
 - `agent/recognition/face.py` 利用 `face_recognition` 提取 128D 特征，按阈值（默认 0.55）判断匹配结果并提供身份 + 置信度。
 - `face_recognition.min_face_area_ratio`（默认 0.01）会忽略帧面积低于该比例的人脸框，减少远处衣物/背景误判为“有人”的情况。
-- `config/settings.yaml` 中的 `monitored_groups`（按顶级目录，如 `child`）或 `monitored_identities`（按完整路径，如 `child/alice`）控制哪些身份需要进入坐姿检测，默认仅监测 `child`，其余身份直接跳过以节省算力。
+- `config/settings.yaml` 中的 `face_capture.groups`（顶级目录，如 `child`）或 `unknown_capture.groups` 用于控制哪些分组进入坐姿检测；留空则所有识别到的人都会做姿态分析。
 
 示例目录：
 

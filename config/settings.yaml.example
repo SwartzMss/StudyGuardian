@@ -6,6 +6,7 @@ capture:
   target_fps: 5
   reconnect_delay: 5
   max_retries: 5
+  allowed_group_grace_seconds: 5
 face_recognition:
   known_dir: data/known
   tolerance: 0.6
@@ -16,7 +17,8 @@ face_capture:
   root: data/captures
   date_folder_format: '%Y%m%d'
   time_format: '%H%M%S'
-  groups: []  # 空列表表示不按分组过滤，填写 ["child"] 仅保存孩子
+  groups:
+  - child
 posture:
   nose_drop: -0.0521
   neck_angle: 163.19  # 设为 null 可禁用颈部前伸检测

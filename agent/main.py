@@ -243,29 +243,18 @@ def _merge_sets(
     return set(primary).union(secondary)
 
 
-def _parse_monitoring_filters(
-    settings: Dict[str, Any],
-) -> Tuple[Optional[Set[str]], Optional[Set[str]]]:
-    monitored_identities = _ensure_string_set(settings.get("monitored_identities"))
-    monitored_groups = _ensure_string_set(settings.get("monitored_groups"))
-    monitoring_block = settings.get("monitoring") or {}
-    monitored_identities = _merge_sets(
-        monitored_identities, _ensure_string_set(monitoring_block.get("identities"))
-    )
-    monitored_groups = _merge_sets(
-        monitored_groups, _ensure_string_set(monitoring_block.get("groups"))
-    )
-    if monitored_identities is None and monitored_groups is None:
-        monitored_groups = {"child"}
-    return monitored_identities, monitored_groups
+def _derive_allowed_groups(settings: Dict[str, Any]) -> Optional[Set[str]]:
+    """Use face_capture groups to decide whose posture to check."""
+    capture_cfg = settings.get("face_capture") or {}
+    return _ensure_string_set(capture_cfg.get("groups"))
 
 
 def make_frame_handler(
     face_service: FaceService,
     posture_service: PostureService,
     storage: Storage,
-    monitored_identities: Optional[Set[str]] = None,
-    monitored_groups: Optional[Set[str]] = None,
+    allowed_groups: Optional[Set[str]] = None,
+    allowed_group_grace_seconds: float = 5.0,
     identity_capture: Optional[IdentityCapture] = None,
     motion_gate: Optional[MotionGate] = None,
     buzzer: Optional[Buzzer] = None,
@@ -274,9 +263,13 @@ def make_frame_handler(
     buzzer_min_gap_seconds: float = 5.0,
 ) -> Callable[[cv2.Mat], bool]:
     last_beep_ts = 0.0
+    last_allowed_seen_ts = 0.0
+    last_allowed_identity = "unknown"
 
     def handler(frame: "cv2.Mat") -> bool:
         nonlocal last_beep_ts
+        nonlocal last_allowed_seen_ts
+        nonlocal last_allowed_identity
         if motion_gate is not None:
             active, reason = motion_gate.should_process()
             if not active:
@@ -289,6 +282,7 @@ def make_frame_handler(
         identity = "unknown"
         distance: Optional[float] = None
         capture_records: dict[str, Tuple[str | None, Optional[str]]] = {}
+        now = time.monotonic()
         if had_faces:
             for match in matches:
                 identity_key = match.identity or "unknown"
@@ -310,6 +304,10 @@ def make_frame_handler(
                 )
                 capture_records[identity_key] = (face_capture_id, snapshot_path)
 
+                if allowed_groups and group in allowed_groups:
+                    last_allowed_seen_ts = now
+                    last_allowed_identity = identity_key
+
             primary = matches[0]
             identity = primary.identity
             distance = primary.distance
@@ -320,25 +318,35 @@ def make_frame_handler(
             if motion_gate is not None:
                 motion_gate.mark_face_seen()
         else:
-            logger.debug("No faces detected in current frame; posture skipped")
-            return True
+            logger.debug("No faces detected in current frame")
 
-        should_analyze = True
-        if monitored_identities or monitored_groups:
-            identity_match = (
-                monitored_identities is not None and identity in monitored_identities
-            )
-            group_match = False
-            if monitored_groups and identity not in ("", "unknown"):
+        allowed_window_active = False
+        if allowed_groups:
+            identity_group = None
+            if identity not in ("", "unknown"):
                 identity_group = identity.split("/", 1)[0]
-                group_match = identity_group in monitored_groups
-            should_analyze = identity_match or group_match
-        if not should_analyze:
-            logger.debug(
-                "Skipping posture analysis for {}; identity not in monitored list",
-                identity,
+            allowed_window_active = (
+                last_allowed_seen_ts > 0
+                and (now - last_allowed_seen_ts) <= allowed_group_grace_seconds
             )
-            return True
+            current_allowed = identity_group in allowed_groups if identity_group else False
+            if current_allowed:
+                last_allowed_seen_ts = now
+                last_allowed_identity = identity or last_allowed_identity
+                allowed_window_active = True  # current frame is allowed, keep window active
+            if not current_allowed and not allowed_window_active:
+                logger.debug(
+                    "Skipping posture analysis for {}; group %s not allowed",
+                    identity,
+                    identity_group or "unknown",
+                )
+                return True
+
+        # If in allowed window but current frame has no faces/unknown, reuse last allowed identity.
+        if allowed_groups and allowed_window_active and identity in ("", "unknown"):
+            identity = last_allowed_identity or "unknown"
+
+        # Without allowed_groups, analyze everyone. With allowed_groups, analyze if current group is allowed or window is active.
 
         posture = posture_service.analyze(frame)
         if posture:
@@ -362,6 +370,10 @@ def make_frame_handler(
             record = capture_records.get(identity)
             if record:
                 face_capture_id, capture_path = record
+            elif identity_capture is not None:
+                saved = identity_capture.save(identity, frame)
+                if saved:
+                    capture_path = str(saved)
             storage.log_posture(
                 identity=identity,
                 is_bad=posture.bad,
@@ -613,7 +625,7 @@ def main() -> None:
             interval_seconds=interval,
         )
         retention_worker.start()
-    monitored_identities, monitored_groups = _parse_monitoring_filters(settings)
+    allowed_groups = _derive_allowed_groups(settings)
     face_capture_cfg = settings.get("face_capture")
     default_identities: Optional[Set[str]] = None
     if face_capture_cfg is None:
@@ -649,8 +661,10 @@ def main() -> None:
                     face_service,
                     posture_service,
                     storage,
-                    monitored_identities=monitored_identities,
-                    monitored_groups=monitored_groups,
+                    allowed_groups=allowed_groups,
+                    allowed_group_grace_seconds=float(
+                        capture_cfg.get("allowed_group_grace_seconds", 5.0)
+                    ),
                     identity_capture=identity_capture,
                     motion_gate=motion_gate if pir_sensor else None,
                     buzzer=buzzer,
