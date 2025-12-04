@@ -3,6 +3,7 @@
 孩子学习桌智能守护系统：依托 Raspberry Pi 5 + ESP32-CAM，实现人脸识别与坐姿监测的本地化解决方案。
 
 ---
+[点击观看项目介绍视频](https://www.bilibili.com/video/BV1cy2sBpEmN/)
 
 ## 1. Overview｜项目简介
 
