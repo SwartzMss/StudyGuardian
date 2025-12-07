@@ -407,17 +407,21 @@ def _merge_hosts(existing: str) -> set[str]:
 
 def ensure_no_proxy(camera_url: str | None) -> None:
     hosts: set[str] = {"127.0.0.1", "localhost"}
+    entries: set[str] = set()
     if camera_url:
         parsed = urlparse(camera_url)
         if parsed.hostname:
             hosts.add(parsed.hostname)
+            if parsed.port:
+                entries.add(f"{parsed.hostname}:{parsed.port}")
 
     for key in ("no_proxy", "NO_PROXY"):
         existing = os.environ.get(key)
         if existing:
-            hosts.update(_merge_hosts(existing))
+            entries.update(_merge_hosts(existing))
 
-    value = ",".join(sorted(hosts))
+    entries.update(hosts)
+    value = ",".join(sorted(entries))
     os.environ["no_proxy"] = value
     os.environ["NO_PROXY"] = value
 
