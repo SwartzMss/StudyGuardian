@@ -6,7 +6,7 @@ capture:
   target_fps: 5
   reconnect_delay: 5
   max_retries: 5
-  allowed_group_grace_seconds: 5
+  allowed_group_grace_seconds: 10
 face_recognition:
   known_dir: data/known
   tolerance: 0.6
