@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Set
 from urllib.parse import urlparse
-from urllib.request import urlopen
+from urllib.request import ProxyHandler, build_opener
 
 import cv2
 from loguru import logger
@@ -135,6 +135,9 @@ def ensure_camera_settings(
     timeout: float = 3.0,
 ) -> None:
     """Fetch camera /status and enforce required settings before opening stream."""
+    # Build a no-proxy opener so camera requests bypass any system/global proxy.
+    opener = build_opener(ProxyHandler({}))
+
     if not camera_url:
         logger.warning("Camera URL not provided; skip status check")
         return
@@ -157,7 +160,7 @@ def ensure_camera_settings(
     for base_url in base_urls:
         status_url = f"{base_url}/status"
         try:
-            with urlopen(status_url, timeout=timeout) as resp:
+            with opener.open(status_url, timeout=timeout) as resp:
                 body = resp.read()
             status = json.loads(body.decode("utf-8"))
             base_url_used = base_url
@@ -178,7 +181,7 @@ def ensure_camera_settings(
     elif vflip != required_vflip:
         control_url = f"{base_url_used}/control?var=vflip&val={required_vflip}"
         try:
-            urlopen(control_url, timeout=timeout)
+            opener.open(control_url, timeout=timeout)
             logger.info("Set camera vflip to {} via {}", required_vflip, control_url)
         except Exception as exc:  # pragma: no cover - hardware/network concerns
             logger.warning(
@@ -203,7 +206,7 @@ def ensure_camera_settings(
 
     control_url = f"{base_url_used}/control?var=framesize&val={required_framesize}"
     try:
-        urlopen(control_url, timeout=timeout)
+        opener.open(control_url, timeout=timeout)
         logger.info(
             "Set camera framesize to {} via {}", required_framesize, control_url
         )
